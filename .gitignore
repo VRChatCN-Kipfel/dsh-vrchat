@@ -1,0 +1,9 @@
+# DSH / Mnemon local state
+.mnemon/
+
+# OS / editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
