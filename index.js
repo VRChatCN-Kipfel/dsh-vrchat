@@ -29,6 +29,7 @@ import {
   ledgerView,
   findPriorQuery,
 } from "./lib/ledger.js";
+import { buildIndex, lookup } from "./lib/api-table.js";
 
 const name = "vrchat-kb";
 
@@ -105,6 +106,9 @@ function assertDataPresent() {
     "index.json",
     "pages.json",
     "manifest.json",
+    // Optional for activation (the API tool degrades gracefully without it), but
+    // listed so a forgotten rebuild reads as a build-step message.
+    "api-table.json",
   ];
   const missing = required.filter((file) => !existsSync(join(dataDir, file)));
   if (missing.length > 0) {
@@ -118,6 +122,32 @@ function assertDataPresent() {
 /** Shared by every mounted instance: they import this same file. */
 let store = null;
 let manifest = null;
+let apiIndexCache = null;
+
+/**
+ * The API availability index, built once from the build artifact.
+ *
+ * Returns null when the artifact is absent, so the tool degrades to an explicit
+ * "table unavailable" answer instead of throwing.
+ */
+function ensureApiIndex() {
+  if (apiIndexCache !== null) return apiIndexCache;
+  const file = join(dataDir, "api-table.json");
+  if (!existsSync(file)) return null;
+  const table = JSON.parse(readFileSync(file, "utf8"));
+  apiIndexCache = buildIndex({
+    types: (table.types ?? []).map((type) => ({
+      ...type,
+      members: (type.members ?? []).map((member) => ({
+        raw: member.raw,
+        name: member.name,
+        kind: member.kind,
+        params: [],
+      })),
+    })),
+  });
+  return apiIndexCache;
+}
 
 function ensureStore() {
   if (store === null) store = createStore(dataDir);
@@ -392,6 +422,89 @@ function apply(ctx, config) {
           totalLines: result.totalLines,
           lines: result.lines,
         };
+      },
+    }),
+  );
+
+  // ── vrchat_kb_api — is this API available in Udon? ────────────────────────
+  // Answers ONE question the scan rules cannot: whether an arbitrary type or
+  // member appears in the SDK's exposed set. Deliberately separate from
+  // `_scan`: scanning decides "this line violates a rule", which needs precision;
+  // this reports a data lookup, which may honestly return "no data".
+  ctx.tools.register(
+    defineTool({
+      name: "vrchat_kb_api",
+      description:
+        "查询某个 Unity / VRChat 类型或成员在 Udon 中是否可用（依据 SDK 3.10.3 已暴露清单，80 个类型 / 1253 个成员）。" +
+        "传入 `Type`、`Type.Member` 或裸成员名，如 `Component.CompareTag`、`GetComponent`、`Transform`。" +
+        "注意：清单只收录**已暴露**成员，所以「未收录」不等于不可用——工具会明确区分「已暴露 / 类型已知但未列 / 完全无数据」三种情况。" +
+        "用于判断某个 API 在 Udon 里能不能用，比凭印象可靠。",
+      parameters: {
+        query: {
+          type: "string",
+          required: true,
+          description: "类型或成员，如 `Component.CompareTag`、`GetComponent`、`Transform`、`Physics.SphereCast`。",
+        },
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            text: { type: "string", required: true },
+            verdict: { type: "string", required: true },
+          },
+        },
+        render: (_args, value) => [{ type: "text", text: value.text }],
+      },
+      async execute(args) {
+        const query = typeof args?.query === "string" ? args.query.trim() : "";
+        if (query.length === 0) throw new Error("vrchat_kb_api requires a non-empty query");
+
+        const index = ensureApiIndex();
+        if (index === null) {
+          return {
+            text: "API 查表不可用：data/api-table.json 缺失。请先运行 node tools/build-knowledge.mjs。",
+            verdict: "unavailable",
+          };
+        }
+
+        const result = lookup(index, query);
+        const lines = [];
+
+        if (result.verdict === "exposed") {
+          lines.push(`✅ 「${query}」已暴露，可用。`);
+          lines.push(`  所属类型：${result.type}`);
+          lines.push(`  匹配签名：`);
+          for (const overload of result.overloads.slice(0, 12)) lines.push(`    ${overload}`);
+          if (result.overloads.length > 12) lines.push(`    …共 ${result.overloads.length} 个重载`);
+        } else if (result.verdict === "not-listed") {
+          lines.push(`⚠️ 「${query}」未列入已暴露清单——这不等于不可用。`);
+          lines.push(`  ${result.reason}`);
+          if (Array.isArray(result.siblingMembers) && result.siblingMembers.length > 0) {
+            lines.push(`  该类型下列出的成员可作参照：${result.siblingMembers.slice(0, 12).join("、")}`);
+          }
+          lines.push(`  若要确认，用 vrchat_kb 查该 API 的文档页，或在 Unity 里编译验证。`);
+        } else if (result.verdict === "type") {
+          lines.push(`📘 「${result.type}」在清单中，暴露率 ${result.exposureRate ?? "未知"}%。`);
+          lines.push(`  本页列出 ${result.memberCount} 个已暴露成员（上游声明 ${result.declaredMemberCount ?? "?"} 个）：`);
+          for (const member of result.members.slice(0, 25)) lines.push(`    ${member}`);
+          if (result.members.length > 25) lines.push(`    …`);
+        } else if (result.verdict === "type-and-member") {
+          lines.push(`📘 「${query}」既是类型名也是成员名，两种解读都给出：`);
+          lines.push(`  ${result.reason}`);
+          lines.push(`  作为成员出现在：${[...new Set(result.overloads ?? [])].slice(0, 6).join("、")}`);
+          lines.push(`  类型成员（前 12 条）：`);
+          for (const member of (result.members ?? []).slice(0, 12)) lines.push(`    ${member}`);
+        } else {
+          lines.push(`❓ 无数据：「${query}」`);
+          lines.push(`  ${result.reason}`);
+          lines.push("  这不代表不可用——清单只覆盖 SDK 3.10.3 的已暴露成员。");
+        }
+
+        lines.push("");
+        lines.push("（依据 entities/api/exposed-types.md，SDK 3.10.3 已暴露清单；未暴露成员无导出数据。）");
+        return { text: lines.join("\n"), verdict: result.verdict };
       },
     }),
   );

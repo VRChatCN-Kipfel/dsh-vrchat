@@ -199,6 +199,27 @@ async function main() {
   await writeFile(join(dataDir, "keyword-routes.json"), JSON.stringify(keywordRoutes, null, 2), "utf8");
   manifestKeywordRoutes = keywordRoutes.length;
 
+  // ── 2c. API availability table, parsed from the exposed-types page ───────
+  // Parsed at BUILD time with the shipped, tested parser, so the plugin never
+  // parses markdown at runtime and a parser bug surfaces here, not at boot.
+  const { parseExposedTypes } = await import("../lib/api-table.js");
+  const apiSource = await readText(join(corpusRoot, "entities", "api", "exposed-types.md"));
+  const apiParsed = parseExposedTypes(apiSource);
+  const apiTable = {
+    source: "entities/api/exposed-types.md",
+    note: "只收录已暴露成员；未暴露成员无导出数据，故「未收录」不等于不可用。",
+    typeCount: apiParsed.types.length,
+    memberCount: apiParsed.types.reduce((acc, type) => acc + type.members.length, 0),
+    types: apiParsed.types.map((type) => ({
+      type: type.type,
+      fullName: type.fullName,
+      exposureRate: type.exposureRate,
+      memberCount: type.memberCount,
+      members: type.members.map((member) => ({ raw: member.raw, name: member.name, kind: member.kind })),
+    })),
+  };
+  await writeFile(join(dataDir, "api-table.json"), JSON.stringify(apiTable), "utf8");
+
   // ── 3. Manifest ───────────────────────────────────────────────────────────
   // Library version is read from the upstream README badge, not hardcoded.
   let libraryVersion = "unknown";
@@ -226,6 +247,8 @@ async function main() {
     upstreamGitPointer: upstreamHead,
     pageCount: index.length,
     keywordRoutes: manifestKeywordRoutes,
+    apiTableTypes: apiTable.typeCount,
+    apiTableMembers: apiTable.memberCount,
     confidenceDistribution: index.reduce((acc, page) => {
       const key = page.confidence ?? "unset";
       acc[key] = (acc[key] ?? 0) + 1;
