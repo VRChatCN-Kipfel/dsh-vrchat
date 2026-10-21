@@ -20,7 +20,7 @@ import { readFileSync, existsSync } from "node:fs";
 import z from "@deepseek-ai/schemastery";
 import { z as zod } from "zod";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import { createStore, answer } from "./lib/search.js";
+import { createStore, answer, findCorpusRoot } from "./lib/search.js";
 import { lintSource, rankFindings, ruleInventory } from "./lib/lint.js";
 import { readPage, grepPages } from "./lib/docs.js";
 import {
@@ -30,6 +30,14 @@ import {
   findPriorQuery,
 } from "./lib/ledger.js";
 import { buildIndex, lookup } from "./lib/api-table.js";
+import {
+  BRIDGE_TEMPLATES,
+  classifyProcess,
+  decodeLockfilePid,
+  detectCommandLineEvidence,
+  detectProjectEvidence,
+  renderReport,
+} from "./lib/unity-status.js";
 
 const name = "vrchat-kb";
 
@@ -49,7 +57,15 @@ const Config = z.object({
   maxPages: z.number().default(4),
 });
 
-const dataDir = join(dirname(fileURLToPath(import.meta.url)), "data");
+/**
+ * The package root — wherever THIS module was installed.
+ *
+ * Everything the plugin owns is resolved from here: the derived artifacts in
+ * `data/`, and the corpus the bundle carries. Never from the session working
+ * directory: a user building a world in `E:\projects` still gets this library.
+ */
+const packageRoot = dirname(fileURLToPath(import.meta.url));
+const dataDir = join(packageRoot, "data");
 
 /**
  * Projection schemas.
@@ -98,13 +114,15 @@ const ledgerViewSchema = zod.object({
  * instruction instead of a crash.
  */
 function assertDataPresent() {
+  // Only artifacts the bundle still ships. `pages.json` is deliberately absent:
+  // page bodies now live in the workspace checkout and are read lazily, so
+  // requiring it here would fail activation on every fresh install.
   const required = [
     "t0-core.txt",
     "always-load.txt",
     "domain-map.txt",
     "keyword-routes.json",
     "index.json",
-    "pages.json",
     "manifest.json",
     // Optional for activation (the API tool degrades gracefully without it), but
     // listed so a forgotten rebuild reads as a build-step message.
@@ -120,9 +138,10 @@ function assertDataPresent() {
 }
 
 /** Shared by every mounted instance: they import this same file. */
-let store = null;
 let manifest = null;
 let apiIndexCache = null;
+/** Provenance of the API table (its `source` page), kept for the tool's footer. */
+let apiTableMetadata = null;
 
 /**
  * The API availability index, built once from the build artifact.
@@ -135,6 +154,7 @@ function ensureApiIndex() {
   const file = join(dataDir, "api-table.json");
   if (!existsSync(file)) return null;
   const table = JSON.parse(readFileSync(file, "utf8"));
+  apiTableMetadata = table;
   apiIndexCache = buildIndex({
     types: (table.types ?? []).map((type) => ({
       ...type,
@@ -149,8 +169,34 @@ function ensureApiIndex() {
   return apiIndexCache;
 }
 
-function ensureStore() {
-  if (store === null) store = createStore(dataDir);
+/**
+ * The corpus is read from the workspace checkout, never from the bundle.
+ *
+ * Store instances are keyed by corpus root so a second library later means a
+ * second entry here rather than a second copy of this module.
+ */
+/**
+ * One store per installed package. There is no workspace key: the corpus
+ * belongs to the bundle, so every session in this process shares it.
+ */
+let store = null;
+
+/**
+ * Build (once) the retrieval store over the bundle's own corpus.
+ *
+ * The corpus is part of the plugin body, so a miss means the install is
+ * incomplete — not that the user opened the wrong folder. The tools still work
+ * (red lines come from `data/`), but retrieval must say so explicitly instead of
+ * returning an empty digest that reads as "the library has nothing on this".
+ */
+function storeFor() {
+  if (store === null) {
+    // The PACKAGE root comes from this module's own URL — that is the "outside"
+    // part, which must adapt to wherever the package was installed. The "inside"
+    // part (which subdirectory holds the corpus) is this library's own layout and
+    // stays declared in CORPUS_ENTRY, so a second library cannot leak into it.
+    store = createStore(dataDir, findCorpusRoot(packageRoot));
+  }
   return store;
 }
 
@@ -165,6 +211,13 @@ function ensureManifest() {
   return manifest;
 }
 
+/** Copy shown when a session's workspace has no corpus checkout. */
+const NO_CORPUS_TEXT =
+  "知识库语料不可用：当前工作区没找到 `VRChat-Agent-Creator-Library/` 检出。\n" +
+  "本插件的索引结构随包分发，但 414 页正文来自工作区的那个 submodule——" +
+  "请确认它已 `git submodule update --init`，或在包含它的工作区里提问。\n" +
+  "在此之前，注入的红线与人设仍然有效，只是无法检索原文。";
+
 /**
  * Register this instance's injected section and the query tool.
  * @param ctx - agent-scoped services.
@@ -172,13 +225,18 @@ function ensureManifest() {
  */
 function apply(ctx, config) {
   assertDataPresent();
-  const data = ensureStore();
+  const data = storeFor();
   const meta = ensureManifest();
-  const tier = typeof config?.tier === "string" ? config.tier : "lite";
+  // `preset` = mounted inside the VRChat preset; anything else = plain tools only.
+  // There is no global injected section on purpose: a session that never opts
+  // into the preset should pay nothing, because opting in is what makes this
+  // knowledge relevant. Tools stay available either way.
+  const tier = typeof config?.tier === "string" ? config.tier : "tools-only";
   const charBudget = Number.isSafeInteger(config?.charBudget) ? config.charBudget : 3200;
   const maxPages = Number.isSafeInteger(config?.maxPages) ? config.maxPages : 4;
+  const injectSection = tier === "preset" || tier === "full" || tier === "lite";
 
-  const blockKey = tier === "full" ? "always-load" : "t0-core";
+  const blockKey = tier === "preset" || tier === "full" ? "always-load" : "t0-core";
   const block = meta.blocks?.[blockKey];
   // Provenance comes from the build manifest, never hardcoded in the .md.
   // Note: `{{variable}}` would be the "proper" channel, but the prompt
@@ -191,16 +249,18 @@ function apply(ctx, config) {
     .filter((line) => line.length > 0)
     .join(" · ");
 
-  // Preset mode REPLACES the global section (same name, scoped shadow), so it
-  // must carry the red lines itself rather than inheriting them.
-  const baseText = tier === "full" ? `${data.t0}\n\n---\n\n${data.alwaysLoad}` : data.t0;
+  const baseText = blockKey === "always-load" ? `${data.t0}\n\n---\n\n${data.alwaysLoad}` : data.t0;
   const sectionText = `${baseText}\n\n> ${provenance}`;
 
-  ctx.systemPrompt.section({
-    name: "vrchat-kb",
-    order: 640,
-    text: sectionText,
-  });
+  // In the preset this section is a supplement behind the persona; standalone it
+  // would be the only injected text, which is why the global row is not shipped.
+  if (injectSection) {
+    ctx.systemPrompt.section({
+      name: "vrchat-kb",
+      order: 640,
+      text: sectionText,
+    });
+  }
 
   // ── Session ledger projection ─────────────────────────────────────────────
   // One unit serves the Chat row AND `seen` de-duplication. It is a pure fold
@@ -274,6 +334,15 @@ function apply(ctx, config) {
         const limit =
           Number.isSafeInteger(args?.limit) && args.limit > 0 ? Math.min(args.limit, 12) : maxPages;
 
+        // The corpus belongs to THIS session's workspace. A workspace without the
+        // checkout still gets the injected red lines, but retrieval must say so
+        // rather than return an empty digest that looks like "the library has
+        // nothing on this".
+        const store = storeFor();
+        if (store.corpusRoot === null) {
+          return { text: NO_CORPUS_TEXT, hit: false, pageCount: 0, routes: [] };
+        }
+
         // `seen`: only meaningful within the SAME turn and the SAME compaction
         // generation — `findPriorQuery` enforces both. Across turns the reply is
         // noise; after compaction the earlier digest was replaced out of the
@@ -282,7 +351,7 @@ function apply(ctx, config) {
         const ledger = readLedger(exec.agent);
         const prior = findPriorQuery(ledger, query);
         if (prior !== undefined) {
-          const result = answer(data, query, { limit, charBudget });
+          const result = answer(store, query, { limit, charBudget });
           return {
             text:
               `本轮已查过等价问题：「${prior.query}」，结果就在上文，不必重复调用；换关键词才能得到不同角度。\n` +
@@ -294,7 +363,7 @@ function apply(ctx, config) {
           };
         }
 
-        const result = answer(data, query, { limit, charBudget });
+        const result = answer(store, query, { limit, charBudget });
         return {
           text: result.text,
           hit: result.hit,
@@ -351,11 +420,14 @@ function apply(ctx, config) {
         },
         render: (_args, value) => [{ type: "text", text: value.text }],
       },
-      async execute(args) {
+      async execute(args, exec) {
         const pattern = typeof args?.pattern === "string" ? args.pattern.trim() : "";
         if (pattern.length === 0) throw new Error("vrchat_kb_grep requires a non-empty pattern");
         const include = typeof args?.include === "string" ? args.include : undefined;
-        const result = grepPages(data.pages, pattern, { include });
+        // The corpus belongs to THIS session's workspace, not to the bundle.
+        const store = storeFor();
+        if (store.corpusRoot === null) return { text: NO_CORPUS_TEXT, ok: false, total: 0, matches: [] };
+        const result = grepPages(store.index.map((entry) => entry.path), store.bodyOf, pattern, { include });
         return { text: result.text, ok: result.ok, total: result.total ?? 0, matches: result.matches ?? [] };
       },
     }),
@@ -408,12 +480,16 @@ function apply(ctx, config) {
         },
         render: (_args, value) => [{ type: "text", text: value.text }],
       },
-      async execute(args) {
+      async execute(args, exec) {
         const filePath = typeof args?.file_path === "string" ? args.file_path.trim() : "";
         if (filePath.length === 0) throw new Error("vrchat_kb_read requires a non-empty file_path");
         const offset = Number.isInteger(args?.offset) ? args.offset : 1;
         const limit = Number.isInteger(args?.limit) ? args.limit : undefined;
-        const result = readPage(data.pages, filePath, offset, limit);
+        const store = storeFor();
+        if (store.corpusRoot === null) {
+          return { text: NO_CORPUS_TEXT, ok: false, path: undefined, offset, totalLines: undefined, lines: [] };
+        }
+        const result = readPage(store.bodyOf, store.index.map((entry) => entry.path), filePath, offset, limit);
         return {
           text: result.text,
           ok: result.ok,
@@ -464,13 +540,25 @@ function apply(ctx, config) {
         const index = ensureApiIndex();
         if (index === null) {
           return {
-            text: "API 查表不可用：data/api-table.json 缺失。请先运行 node tools/build-knowledge.mjs。",
+            // The table is a derived artifact shipped with the package, so its
+            // absence means the install is incomplete — not that the user should
+            // run a build. Say what to do, not what a maintainer would do.
+            text:
+              "API 查表不可用：本安装缺少 `data/api-table.json`（随包分发的派生数据）。\n" +
+              "这不是你的操作问题——请重装插件，或检查安装是否被裁剪（package.json 的 `files` 应包含 `data`）。",
             verdict: "unavailable",
           };
         }
 
         const result = lookup(index, query);
         const lines = [];
+
+        // The table is derived from one page of the corpus, so whether that page
+        // is readable is worth saying: a hit here with an unreadable source page
+        // means a partial install, not that the answer is untrustworthy.
+        const store = storeFor();
+        const sourcePage = typeof apiTableMetadata?.source === "string" ? apiTableMetadata.source : null;
+        const sourceReadable = sourcePage === null ? null : store.bodyOf(sourcePage) !== null;
 
         if (result.verdict === "exposed") {
           lines.push(`✅ 「${query}」已暴露，可用。`);
@@ -504,7 +592,200 @@ function apply(ctx, config) {
 
         lines.push("");
         lines.push("（依据 entities/api/exposed-types.md，SDK 3.10.3 已暴露清单；未暴露成员无导出数据。）");
+        if (sourceReadable === false) {
+          lines.push(
+            `⚠️ 但该来源页在当前安装里读不到（语料缺少 \`${String(sourcePage)}\`）：` +
+              "查表结果仍可用，原文摘录不可用。可能是安装不完整。",
+          );
+        } else if (sourceReadable === true && sourcePage !== null) {
+          lines.push(`要看原文：\`vrchat_kb_read("${sourcePage}")\`。`);
+        }
         return { text: lines.join("\n"), verdict: result.verdict };
+      },
+    }),
+  );
+
+  // ── vrchat_kb_unity — what Unity is actually running right now ───────────
+  // Read-only runtime discovery. It answers "which projects are open, under
+  // which pid, is an MCP endpoint plausible" and stops there: fetching a token
+  // would mean this tool handling credentials, and inspecting the process
+  // command line is something the agent can do itself when it needs to.
+  ctx.tools.register(
+    defineTool({
+      name: "vrchat_kb_unity",
+      description:
+        "查看本机正在运行的 Unity 编辑器 / Unity Hub 进程、它们对应的项目路径、项目的编辑器版本与锁定情况，" +
+        "以及「看起来像 MCP 端点」的本地端口（这是可能性，不是证明）。" +
+        "只读、不读任何凭据。要确认端点与 token，自己去查对应进程的启动参数与项目配置。" +
+        "装了 unity-mcp-cli 的话，它自带的 status 会给出更细的连接状态。",
+      parameters: {
+        projectPath: {
+          type: "string",
+          description: "可选：额外检查某个项目目录的编辑器版本与 lockfile 状态。",
+        },
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            text: { type: "string", required: true },
+            editors: { type: "integer", required: true },
+            hubs: { type: "integer", required: true },
+            evidence: { type: "integer", required: true },
+          },
+        },
+        render: (_args, value) => [{ type: "text", text: value.text }],
+      },
+      async execute(args, exec) {
+        const shell = ctx.get("shell");
+        if (shell === undefined) {
+          return {
+            text:
+              "无法探查：本环境没有可用的 shell 服务。\n" +
+              "你可以自己跑 `Get-Process Unity*` / `Get-CimInstance Win32_Process` 来看进程。",
+            editors: 0,
+            hubs: 0,
+            evidence: 0,
+          };
+        }
+
+        // One invocation gathers process command lines and project-file facts.
+        // Deliberately NO port sweep: an open socket proves nothing, and a port
+        // guessed to be MCP is not evidence. A port is reported only when a
+        // command line names it.
+        // `resolve` then `execute` is the service's two-step contract; awaiting
+        // `result()` is what makes this a foreground run.
+        const script = [
+          "$procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |",
+          "  Where-Object { $_.Name -like 'Unity*' -or $_.Name -like '*mcp*' } |",
+          "  Select-Object ProcessId, Name, ExecutablePath, CommandLine",
+          "$cli = [bool](Get-Command unity-mcp-cli -ErrorAction SilentlyContinue)",
+          "[pscustomobject]@{ procs = @($procs); cli = $cli } | ConvertTo-Json -Depth 4 -Compress",
+        ].join("\n");
+
+        let output;
+        try {
+          const spec = shell.resolve({
+            command: script,
+            timeoutMs: 20000,
+            onExpiry: "kill",
+            signal: exec.signal,
+          });
+          const running = await shell.execute(spec);
+          output = await running.result();
+        } catch (error) {
+          return {
+            text: `探查失败：${String(error?.message ?? error)}`,
+            editors: 0,
+            hubs: 0,
+            evidence: 0,
+          };
+        }
+
+        let snapshot;
+        try {
+          snapshot = JSON.parse(String(output.stdout?.text ?? "").trim() || "{}");
+        } catch {
+          return {
+            text: `探查失败：无法解析 shell 输出。\n${String(output.stderr?.text ?? "").slice(0, 400)}`,
+            editors: 0,
+            hubs: 0,
+            evidence: 0,
+          };
+        }
+
+        const rawProcs = Array.isArray(snapshot.procs) ? snapshot.procs : snapshot.procs === undefined ? [] : [snapshot.procs];
+
+        const processes = [];
+        for (const raw of rawProcs) {
+          const classified = classifyProcess({
+            pid: Number(raw.ProcessId),
+            name: String(raw.Name ?? ""),
+            executablePath: raw.ExecutablePath ?? null,
+            commandLine: raw.CommandLine ?? "",
+          });
+          if (classified === null) continue;
+          processes.push(classified);
+        }
+
+        // Command-line evidence: a process that names MCP arguments, plus the
+        // port that SAME line declares. No port sweep happens here.
+        const commandEvidence = [];
+        for (const process of processes) {
+          for (const match of detectCommandLineEvidence(process)) {
+            commandEvidence.push({ pid: process.pid, ...match });
+          }
+          if (process.kind === "mcp-server") {
+            commandEvidence.push({
+              pid: process.pid,
+              bridgeId: process.bridgeId,
+              label: BRIDGE_TEMPLATES.find((b) => b.id === process.bridgeId)?.label ?? process.bridgeId,
+              evidence: [`进程名 ${process.name}`],
+              port: null,
+            });
+          }
+        }
+
+        // Projects: the ones named on a command line, plus an optional explicit one.
+        const projects = [];
+        const seen = new Set();
+        const addProject = (projectPath, lockedByPid) => {
+          if (projectPath === null || seen.has(projectPath)) return;
+          seen.add(projectPath);
+          const normalized = projectPath.replace(/\\/g, "/");
+          let editorVersion = null;
+          try {
+            const versionFile = join(projectPath, "ProjectSettings", "ProjectVersion.txt");
+            if (existsSync(versionFile)) {
+              const text = readFileSync(versionFile, "utf8");
+              const match = /m_EditorVersion:\s*(\S+)/.exec(text);
+              editorVersion = match === null ? null : match[1];
+            }
+          } catch {
+            /* an unreadable project is reported without a version */
+          }
+          const bridgeEvidence = detectProjectEvidence(
+            normalized,
+            (p) => readFileSync(p, "utf8"),
+            (p) => existsSync(p),
+          );
+          projects.push({ path: projectPath, editorVersion, lockedByPid, bridgeEvidence });
+        };
+
+        for (const process of processes) {
+          if (process.projectPath === null) continue;
+          addProject(process.projectPath, process.kind === "editor" ? process.pid : null);
+        }
+        if (typeof args?.projectPath === "string" && args.projectPath.trim().length > 0) {
+          addProject(args.projectPath.trim(), null);
+        }
+
+        // A live lockfile names the editor pid holding a project.
+        for (const project of projects) {
+          try {
+            const lockFile = join(project.path, "Temp", "UnityLockfile");
+            if (!existsSync(lockFile)) continue;
+            const pid = decodeLockfilePid(new Uint8Array(readFileSync(lockFile)));
+            if (pid !== null) project.lockedByPid = pid;
+          } catch {
+            /* a stale or unreadable lockfile leaves the state unknown */
+          }
+        }
+
+        const text = renderReport({
+          processes,
+          projects,
+          commandEvidence,
+          cliDetected: snapshot.cli === true,
+        });
+
+        return {
+          text,
+          editors: processes.filter((p) => p.kind === "editor").length,
+          hubs: processes.filter((p) => p.kind === "hub").length,
+          evidence: commandEvidence.length + projects.reduce((acc, p) => acc + p.bridgeEvidence.length, 0),
+        };
       },
     }),
   );

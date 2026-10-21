@@ -12,9 +12,27 @@
  *
  * Usage: node tools/build-knowledge.mjs
  */
-import { readFile, writeFile, mkdir, readdir, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, stat, unlink, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, posix } from "node:path";
+const require = createRequire(import.meta.url);
+// The deployment ships `yaml` (it is a Host dependency), and the patch is
+// serialized with it rather than hand-templated — a single misplaced block
+// scalar breaks activation of the whole preset. It is deliberately NOT a
+// dependency of this package: only this build tool needs it, and the shipped
+// plugin reads no YAML at runtime.
+let YAML;
+try {
+  YAML = require(join(process.env.DSH_PROFILE_DIR ?? "", "node_modules", "yaml"));
+} catch {
+  console.error(
+    "缺少 yaml 解析器：本脚本从 DSH 安装目录读取它。\n" +
+      "请在装有 DSH 的环境运行，或设置 DSH_PROFILE_DIR 指向一个含 node_modules/yaml 的 profile。",
+  );
+  process.exit(2);
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The plugin body IS the repository root, so the upstream submodule sits beside
@@ -52,6 +70,89 @@ function estimateTokens(text) {
     tokensLow: Math.round(cjk / 1.6 + ascii / 4.0),
     tokensHigh: Math.round(cjk / 1.0 + ascii / 3.0),
   };
+}
+
+/**
+ * Indent a block scalar so it nests correctly under `prefix: |-`.
+ *
+ * YAML block scalars require EVERY non-empty line to share one indentation;
+ * a single over-indented continuation line (a markdown list wrap, for example)
+ * would either be parsed as deeper structure or break the scalar. So the input
+ * is first de-indented to its own common minimum, then re-indented uniformly.
+ */
+function blockScalar(text, indent) {
+  const lines = text.split("\n");
+  const indents = lines
+    .filter((line) => line.trim().length > 0)
+    .map((line) => /^\s*/.exec(line)[0].length);
+  const common = indents.length === 0 ? 0 : Math.min(...indents);
+  const pad = " ".repeat(indent);
+  return lines
+    .map((line) => {
+      if (line.trim().length === 0) return "";
+      return `${pad}${line.slice(common)}`;
+    })
+    .join("\n");
+}
+
+/**
+ * Render the bundle patch.
+ *
+ * Generated rather than hand-maintained: the persona text is the single source
+ * of truth (content-src/persona-prefix.md plus the curated blocks), and a patch
+ * embedding a copy would drift the moment someone edited only one side.
+ *
+ * There is NO global VRChat row. The knowledge is injected only by the preset,
+ * in two halves:
+ *   prefix (order 0)      identity and domain facts
+ *   suffix (order 10200)  red lines and the full digest, last in the prompt
+ * A session that never opts into the preset pays nothing, which is the point:
+ * opting in is what makes this body of knowledge relevant.
+ */
+function renderPatch(personaPrefix, personaSuffix) {
+  const header = `# dsh-vrchat-kb — VRChat 创作知识库  【本文件由 tools/build-knowledge.mjs 生成，不要手改】
+#
+# 只有预设行，没有全局行：不使用 vrchat 预设的会话零成本。
+#
+#   prefix (order 0)      专家身份 / 领域事实 / 域边界 / 工具索引
+#   suffix (order 10200)  红线 + 全量域块（装配在最末，作为最终适用的约束集）
+#
+# 内容随包分发（data/），运行期不读工作区、不联网。
+
+`;
+  const document = [
+    {
+      insert: [
+        {
+          id: "preset-vrchat",
+          name: "@deepseek-ai/dsh-agent-preset",
+          config: {
+            id: "vrchat",
+            name: "VRChat 创作模式",
+            description: "VRChat World/Avatar/API 开发：专家人设 + 红线 + 全量领域知识。",
+            order: 20,
+            plugins: [
+              {
+                id: "persona",
+                name: "@deepseek-ai/dsh-persona",
+                config: {
+                  prefix: personaPrefix.trim(),
+                  suffix: personaSuffix.trim(),
+                },
+              },
+              {
+                id: "vrchat-kb",
+                name: "dsh-vrchat-kb",
+                config: { tier: "preset" },
+              },
+            ],
+          },
+        },
+      ],
+    },
+  ];
+  // Serialized, never templated: hand-built YAML is where the block scalars broke.
+  return `${header}${YAML.stringify(document, { lineWidth: 0 })}`;
 }
 
 async function readText(path) {
@@ -119,7 +220,7 @@ async function main() {
     await writeFile(join(dataDir, `${key}.txt`), text, "utf8");
   }
 
-  // Preset mode: coverage map + every domain block, in reading order.
+  // Preset mode: the full digest, plus the coverage map as its opening section.
   const alwaysLoad = [
     loaded["domain-map"],
     loaded["t1-world"],
@@ -128,15 +229,64 @@ async function main() {
   ].join("\n\n---\n\n");
   await writeFile(join(dataDir, "always-load.txt"), alwaysLoad, "utf8");
 
-  // ── 2. Retrieval corpus (upstream, verbatim) ──────────────────────────────
+  // ── Persona prefix / suffix ──────────────────────────────────────────────
+  // Injected ONLY by the preset. There is no global VRChat section: a session
+  // that never opts into the preset pays nothing, because opting in is what
+  // makes the whole body of knowledge relevant.
+  //
+  //   prefix (order 0)      identity, domain facts, boundaries, tool index
+  //   suffix (order 10200)  the red lines and the full domain digest
+  //
+  // The suffix sits last in the assembled prompt, which is where a model reads
+  // whatever it should treat as the operative constraint set.
+  const personaPrefix = (() => {
+    try {
+      const raw = readFileSync(join(contentSrc, "persona-prefix.md"), "utf8");
+      return raw.replace(/^---[\s\S]*?---\n/, "").trim();
+    } catch {
+      return "";
+    }
+  })();
+  await writeFile(join(dataDir, "persona-prefix.txt"), personaPrefix, "utf8");
+
+  // The suffix is assembled from the curated blocks, so the red lines live once.
+  const personaSuffix = [
+    "# VRChat 硬约束与领域知识",
+    "",
+    loaded["t0-core"].replace(/^# .*\n+/, "").trim(),
+    "",
+    "---",
+    "",
+    alwaysLoad,
+  ].join("\n").trim();
+  await writeFile(join(dataDir, "persona-suffix.txt"), personaSuffix, "utf8");
+
+  await writeFile(
+    join(workspaceRoot, "cordis.patch.yml"),
+    renderPatch(personaPrefix, personaSuffix),
+    "utf8",
+  );
+
+  // ── 2. Retrieval index (derived only) ─────────────────────────────────────
+  // The raw pages are NOT copied anywhere: they are the submodule, i.e. part of
+  // the plugin body, read in place at query time. `data/` carries only what the
+  // build DERIVES from them — metadata the store needs up front so a query does
+  // not have to walk 414 files to learn what exists.
   const files = await walkMarkdown(corpusRoot);
   const index = [];
-  const pages = {};
+
+  // A `data/corpus/` from an earlier build would duplicate the submodule inside
+  // the package; remove it so the body is not shipped twice.
+  try {
+    await rm(join(dataDir, "corpus"), { recursive: true, force: true });
+  } catch {
+    /* nothing to remove */
+  }
 
   for (const file of files) {
     const rel = posix.join(...relative(corpusRoot, file).split("\\"));
     const raw = await readText(file);
-    const { meta, body } = parseFrontmatter(raw);
+    const { meta } = parseFrontmatter(raw);
     index.push({
       path: rel,
       title: typeof meta.title === "string" ? meta.title : rel.replace(/\.md$/, ""),
@@ -147,12 +297,18 @@ async function main() {
       tags: Array.isArray(meta.tags) ? meta.tags : [],
       size: raw.length,
     });
-    pages[rel] = body;
   }
 
   index.sort((a, b) => a.path.localeCompare(b.path));
   await writeFile(join(dataDir, "index.json"), JSON.stringify(index, null, 2), "utf8");
-  await writeFile(join(dataDir, "pages.json"), JSON.stringify(pages), "utf8");
+
+  // Remove a pages.json left by an earlier build: it was a single 3.7 MB blob
+  // holding a second copy of what the submodule already has.
+  try {
+    await unlink(join(dataDir, "pages.json"));
+  } catch {
+    /* already absent */
+  }
 
   // ── 2b. Concept → grep-pattern routes, taken from the upstream index.md table ──
   // These are the author's own hand-calibrated Chinese-concept-to-keyword table.

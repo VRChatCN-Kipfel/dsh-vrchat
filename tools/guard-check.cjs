@@ -20,7 +20,6 @@ const required = [
   "domain-map.txt",
   "keyword-routes.json",
   "index.json",
-  "pages.json",
   "manifest.json",
 ];
 

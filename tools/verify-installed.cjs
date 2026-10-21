@@ -9,24 +9,24 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const generationsLib = require("./lib-generation.cjs");
 
-const generations = path.join(
-  process.env.DSH_HOME ?? path.join(process.env.APPDATA ?? "", "dsh-desktop", "harness"),
-  "profiles",
-  ".generations",
-  "live",
-);
+const generations = generationsLib.liveRoot();
 
+/**
+ * Pick a generation. Default is the NEWEST BY MTIME, never the name-sorted last:
+ * names embed a version, so string sorting puts `0.9.0` after `0.11.0` and a
+ * name-sorted pick silently verifies a stale generation while reporting success.
+ */
 function pickGeneration(name) {
   if (!fs.existsSync(generations)) return null;
-  const dirs = fs
-    .readdirSync(generations, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith("dsh-vrchat-kb+"))
-    .map((entry) => entry.name)
-    .sort();
-  if (dirs.length === 0) return null;
-  if (name !== undefined) return dirs.find((dir) => dir.includes(name)) ?? null;
-  return dirs.at(-1);
+  if (name !== undefined) {
+    const match = fs
+      .readdirSync(generations)
+      .find((entry) => entry.startsWith("dsh-vrchat-kb+") && entry.includes(name));
+    return match ?? null;
+  }
+  return generationsLib.newestGeneration("dsh-vrchat-kb+");
 }
 
 async function main() {
@@ -70,17 +70,20 @@ async function main() {
 
   // 3. data/ completeness — the guard's precondition
   const dataDir = path.join(pkgRoot, "data");
+  // Shipped artifacts only. `pages.json` is intentionally absent: bodies are
+  // read lazily from the workspace checkout.
   for (const file of [
     "t0-core.txt",
     "always-load.txt",
     "domain-map.txt",
     "keyword-routes.json",
     "index.json",
-    "pages.json",
     "manifest.json",
+    "api-table.json",
   ]) {
     check(`data/${file}`, fs.existsSync(path.join(dataDir, file)));
   }
+  check("data/pages.json 不再随包", !fs.existsSync(path.join(dataDir, "pages.json")));
 
   // 4. index.js must not be importable without the Harness (it imports its
   // packages), but a syntax-level parse still catches broken edits.
