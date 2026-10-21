@@ -18,15 +18,23 @@ agent 不需要知道 `entities/world/udon/persistence/index.md` 存在，只需
 
 | 模式 | 触发 | 注入内容 | 估算 |
 |---|---|---|---|
-| 默认 | 任意会话 | 红线 + 领域识别 + 回答纪律 | ~550–810 tok |
-| VRChat 创作预设 | 选用 `vrchat` 预设 | 红线 + 覆盖地图 + World/Avatar/Shader 全量域块 | ~2650–3840 tok |
+| 默认（`tier: lite`，常驻） | 任意会话 | **不注入任何 prompt 文本**，只注册 6 个工具与 `/vrchat` | 工具定义 ~2–3K tok |
+| VRChat 创作预设（`tier: preset`） | 选用 `vrchat` 预设 | 红线 + 覆盖地图 + World/Avatar/Shader 全量域块 | ~2650–3840 tok |
 
-预设行与全局行注册**同名** `vrchat-kb` section，作用域内的会 shadow 掉全局那条 —— 恰好一条，无重复。
-因此预设必须自带红线（不能继承全局的）。
+**注入由预设门控，工具不门控。** 常驻行（`tier: lite`）在任何会话都挂上，所以 agent 随时可以
+向知识库提问；它之所以不注入，是因为「VRChat 专家」这个身份只在用户选了预设时才成立。
+
+`full` 是 `preset` 的兼容别名（行为完全相同），新配置不要再写 `full`。
 
 ## 数据
 
-`data/` 是**构建产物，随包分发**，运行期不读工作区、不联网：
+两类东西，归属不同：
+
+**语料本体 —— `VRChat-Agent-Creator-Library/`（submodule，随包分发）**
+414 个裸 Markdown。它是插件本体的一部分，**不经 `data/`、不被重新序列化**：
+查询时按需打开命中的那几页（`lib/search.js` 的惰性读取）。
+
+**派生数据 —— `data/`（构建产物，随包分发）**
 
 | 文件 | 内容 |
 |---|---|
@@ -34,15 +42,17 @@ agent 不需要知道 `entities/world/udon/persistence/index.md` 存在，只需
 | `t1-{world,avatar,shader}.txt` | 域块（手写策展） |
 | `domain-map.txt` | 覆盖地图 + 不覆盖声明 |
 | `always-load.txt` | 预设模式主体 |
-| `index.json` | 414 页元数据 + 上游 `confidence` |
-| `pages.json` | 414 页全文（~3.8 MB，长尾检索用） |
+| `index.json` | 414 页元数据 + 上游 `confidence`（不含正文） |
+| `api-table.json` | SDK 3.10.3 已暴露清单（80 类型 / 1253 成员，解析自 `entities/api/exposed-types.md`） |
 | `keyword-routes.json` | 上游 `index.md` 的话题→目录路由表（20 条，解析自 `## 搜索关键词`） |
+
+`data/` 只放**能从语料机械推导的东西**；正文永远留在 submodule 里，不进 `data/`。
 
 ## 重建
 
 ```bash
-node tools/build-knowledge.mjs     # 上游 submodule → data/
-node tools/estimate-tokens.cjs     # CJK/ASCII 分开的 token 估算
+node tools/build-knowledge.mjs     # 上游 submodule → data/（只生成派生数据）
+node tools/measure-content.mjs .   # CJK/ASCII 分开的 token 估算
 ```
 
 ## 自测（不需要 Harness）

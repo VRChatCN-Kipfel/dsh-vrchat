@@ -102,27 +102,47 @@ function blockScalar(text, indent) {
  * of truth (content-src/persona-prefix.md plus the curated blocks), and a patch
  * embedding a copy would drift the moment someone edited only one side.
  *
- * There is NO global VRChat row. The knowledge is injected only by the preset,
- * in two halves:
- *   prefix (order 0)      identity and domain facts
- *   suffix (order 10200)  red lines and the full digest, last in the prompt
- * A session that never opts into the preset pays nothing, which is the point:
- * opting in is what makes this body of knowledge relevant.
+ * TWO rows, with different jobs:
+ *
+ *   vrchat-kb (tier: lite)   always mounted. Registers the six tools and the
+ *                           `/vrchat` command, and injects NO prompt text. A
+ *                           session that never selects the preset therefore pays
+ *                           only the tool definitions — the agent can still ask
+ *                           the library a question.
+ *
+ *   preset-vrchat            the preset. Mounts a second instance at
+ *                           `tier: preset`, which is what injects the persona,
+ *                           in two halves:
+ *                             prefix (order 0)      identity and domain facts
+ *                             suffix (order 10200)  red lines and the full digest
+ *
+ * Injection stays preset-gated on purpose: the knowledge only becomes the
+ * agent's identity when the user asked for it. Note that `tier: lite` still
+ * injects the short red-line block by contract — see the tier branches in
+ * index.js — so the "zero injection" claim is scoped to the preset text.
  */
 function renderPatch(personaPrefix, personaSuffix) {
   const header = `# dsh-vrchat-kb — VRChat 创作知识库  【本文件由 tools/build-knowledge.mjs 生成，不要手改】
 #
-# 只有预设行，没有全局行：不使用 vrchat 预设的会话零成本。
+# 两行，职责不同：
 #
-#   prefix (order 0)      专家身份 / 领域事实 / 域边界 / 工具索引
-#   suffix (order 10200)  红线 + 全量域块（装配在最末，作为最终适用的约束集）
+#   vrchat-kb (tier: lite)    常驻挂载。只注册工具与 /vrchat 命令，不注入预设人格。
+#                             不选预设的会话仍可向知识库提问。
+#   preset-vrchat             预设。以 tier: preset 再挂一份，注入人设：
+#       prefix (order 0)      专家身份 / 领域事实 / 域边界 / 工具索引
+#       suffix (order 10200)  红线 + 全量域块（装配在最末，作为最终适用的约束集）
 #
-# 内容随包分发（data/），运行期不读工作区、不联网。
+# 内容随包分发（data/ + 语料 submodule），运行期不读工作区、不联网。
 
 `;
   const document = [
     {
       insert: [
+        {
+          id: "vrchat-kb",
+          name: "dsh-vrchat-kb",
+          config: { tier: "lite" },
+        },
         {
           id: "preset-vrchat",
           name: "@deepseek-ai/dsh-agent-preset",
@@ -141,7 +161,7 @@ function renderPatch(personaPrefix, personaSuffix) {
                 },
               },
               {
-                id: "vrchat-kb",
+                id: "vrchat-kb-preset",
                 name: "dsh-vrchat-kb",
                 config: { tier: "preset" },
               },

@@ -21,14 +21,26 @@ const check = (name, ok, detail) => checks.push({ name, ok, detail });
 
 check("YAML 可解析", Array.isArray(patch));
 const rows = patch[0]?.insert ?? [];
-// Only the preset row ships: a session that never opts in pays nothing.
-check("只有预设行（无全局行）", rows.length === 1, `${rows.length} 行`);
-check("不含全局 vrchat-kb 行", rows.every((entry) => entry.id !== "vrchat-kb"));
+
+// Two rows with different jobs:
+//   vrchat-kb       tier: lite    tools only, no injection — always mounted
+//   preset-vrchat   the preset that injects the persona
+check("共两行（常驻工具 + 预设）", rows.length === 2, `${rows.length} 行`);
+
+const alwaysOn = rows.find((entry) => entry.id === "vrchat-kb");
+check("常驻工具行存在", alwaysOn !== undefined);
+check("常驻行 tier=lite（不注入）", alwaysOn?.config?.tier === "lite", alwaysOn?.config?.tier);
+check("常驻行不携带 persona 配置", alwaysOn?.config?.prefix === undefined && alwaysOn?.config?.suffix === undefined);
 
 const preset = rows.find((entry) => entry.id === "preset-vrchat");
 check("预设存在", preset !== undefined);
 check("预设 id = vrchat", preset?.config?.id === "vrchat");
 check("预设含两个插件", (preset?.config?.plugins?.length ?? 0) === 2, String(preset?.config?.plugins?.length));
+
+const presetKb = preset?.config?.plugins?.find((plugin) => plugin.name === "dsh-vrchat-kb");
+check("预设内挂载了知识库插件", presetKb !== undefined);
+check("预设内 tier=preset（会注入）", presetKb?.config?.tier === "preset", presetKb?.config?.tier);
+check("预设内实例 id 与常驻不同", presetKb?.id !== alwaysOn?.id, `${presetKb?.id} vs ${alwaysOn?.id}`);
 
 const persona = preset?.config?.plugins?.find((plugin) => plugin.id === "persona");
 const prefix = persona?.config?.prefix;

@@ -6,10 +6,20 @@
  *   - The TOOL owns "where is it". The agent never has to read index.md, guess a
  *     path, or grep the submodule to find an answer.
  *
- * Two instances may be mounted (global `tier: lite`, preset `tier: full`). They
- * register the SAME section name, so the preset's scoped section shadows the
- * global one — the shadowing is the mode switch, no coordination code needed.
- * They share this module file, hence the single module-level store.
+ * Two instances are mounted, and they differ ONLY in whether they inject:
+ *
+ *   `vrchat-kb`         tier: lite    always on. Registers the six tools and
+ *                                    `/vrchat`; injects no prompt text at all.
+ *   `vrchat-kb-preset`  tier: preset  inside the VRChat preset. Registers the
+ *                                    same tools AND injects the section below.
+ *
+ * Injection is therefore gated on the PRESET, not on the plugin: the knowledge
+ * becomes the agent's identity only when the user asked for it, while the
+ * library stays queryable from any session.
+ *
+ * They share this module file, hence the single module-level store: the corpus
+ * belongs to the package, so both instances read the same pages and the same
+ * page cache.
  *
  * Retrieval lives in `lib/search.js` (pure, Harness-free) so `tools/selftest.cjs`
  * and `tools/debug-query.cjs` exercise exactly the code the plugin runs.
@@ -49,7 +59,23 @@ const name = "vrchat-kb";
 const inject = ["systemPrompt", "tools"];
 
 const Config = z.object({
-  /** `lite` = global default (red lines only); `full` = preset mode (red lines + digest). */
+  /**
+   * Which of the two roles this instance plays.
+   *
+   *   `lite` / `tools-only`   register the six tools and `/vrchat`, inject
+   *                           NOTHING. This is what the always-on row uses, so a
+   *                           session that never selects the preset pays only the
+   *                           tool definitions.
+   *   `preset`                ALSO inject one prompt section (order 640): the
+   *                           red lines, or the full digest when tier is `full`.
+   *
+   * The schema default is `lite`, but `apply()` treats a missing key as
+   * `tools-only`; both mean "no injection", so the two defaults agree in effect.
+   *
+   * `full` is a legacy alias for `preset`: identical behaviour, kept only so an
+   * existing config that still says `full` does not silently lose its injection.
+   * Do not introduce new uses of it.
+   */
   tier: z.string().default("lite"),
   /** Character budget for the evidence returned by one query. */
   charBudget: z.number().default(3200),
@@ -234,7 +260,7 @@ function apply(ctx, config) {
   const tier = typeof config?.tier === "string" ? config.tier : "tools-only";
   const charBudget = Number.isSafeInteger(config?.charBudget) ? config.charBudget : 3200;
   const maxPages = Number.isSafeInteger(config?.maxPages) ? config.maxPages : 4;
-  const injectSection = tier === "preset" || tier === "full" || tier === "lite";
+  const injectSection = tier === "preset" || tier === "full";
 
   const blockKey = tier === "preset" || tier === "full" ? "always-load" : "t0-core";
   const block = meta.blocks?.[blockKey];

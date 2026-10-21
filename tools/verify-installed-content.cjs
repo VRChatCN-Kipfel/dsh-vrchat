@@ -41,8 +41,12 @@ try {
 }
 
 if (Array.isArray(patch)) {
-  const persona = patch[0]?.insert?.[0]?.config?.plugins?.find((plugin) => plugin.id === "persona");
+  // The persona lives in the PRESET row. Row 0 is the always-on tools-only
+  // mount, which carries no prompt text at all — reading it finds nothing.
+  const presetRow = patch[0]?.insert?.find((row) => row.id === "preset-vrchat");
+  const persona = presetRow?.config?.plugins?.find((plugin) => plugin.id === "persona");
   const prefix = persona?.config?.prefix ?? "";
+  check("预设行存在", presetRow !== undefined);
   check("prefix 非空", prefix.length > 1000, `${prefix.length} 字符`);
 
   check("含开工前盘点段", /开工前先盘点/.test(prefix));

@@ -27,5 +27,9 @@ const show = (label, text) => {
   console.log("");
 };
 
-show("default (tier=lite) — order 640, name vrchat-kb", lite);
-show("preset (tier=full)", full);
+// The two tiers differ in WHETHER they inject, not in how much:
+//   lite / tools-only  → nothing is injected (this script prints only what a
+//                        preset instance WOULD inject, for size awareness)
+//   preset / full      → one section at order 640
+show("常驻行 tier=lite 不注入；以上是预设行 tier=preset 会注入的红线块", lite);
+show("preset 完整档（与 tier=preset 相同，full 仅为兼容别名）", full);

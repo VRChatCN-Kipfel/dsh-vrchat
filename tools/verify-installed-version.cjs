@@ -1,21 +1,23 @@
 /** Confirm the INSTALLED generation carries the corrected Unity version. */
-const fs = require("node:fs");
-const path = require("node:path");
-const { createRequire } = require("node:module");
-const generationsLib = require("./lib-generation.cjs");
+const { installedPackageDir, installedPatch, locateRows } = require("./lib-patch-rows.cjs");
 
-const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
-const YAML = requireFromProfile("yaml");
-
-const target = generationsLib.newestGeneration("dsh-vrchat-kb+");
-const pkgRoot = path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat-kb");
-const patch = YAML.parse(fs.readFileSync(path.join(pkgRoot, "cordis.patch.yml"), "utf8"));
-const prefix = patch[0].insert[0].config.plugins.find((plugin) => plugin.id === "persona").config.prefix;
+const installed = installedPackageDir();
+if (installed === null) {
+  console.log("找不到已安装代");
+  process.exit(1);
+}
+const { generation: target, dir: pkgRoot } = installed;
+const rows = locateRows(installedPatch(pkgRoot));
+const prefix = rows.persona?.config?.prefix ?? "";
 
 const checks = [];
 const check = (name, ok, detail) => checks.push({ name, ok, detail });
 
 console.log(`代: ${target}`);
+check("预设内找到 persona 行", rows.persona !== undefined);
+check("prefix 非空", prefix.length > 0, `${prefix.length} 字符`);
+
+// Command lines must only carry the bound version.
 
 // Command lines must only carry the bound version.
 const commandLines = prefix.split("\n").filter((line) => /unity-mcp-cli|--unity/.test(line));

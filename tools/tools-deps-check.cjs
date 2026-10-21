@@ -105,6 +105,49 @@ const unity = blocks.get("vrchat_kb_unity") ?? "";
 check("unity 不调用 storeFor", !/storeFor\(/.test(unity));
 check("unity 用 shell 服务", /ctx\.get\("shell"\)/.test(unity));
 
+// ── tier ↔ injection contract ──────────────────────────────────────────────
+//
+// The whole design rests on one sentence: TOOLS ARE ALWAYS AVAILABLE, INJECTION
+// IS PRESET-GATED. Two configs express it, and a one-character edit silently
+// breaks it — `|| tier === "lite"` used to be there, which made the always-on
+// row inject the red lines after all. Assert the contract, not the intent.
+const applyBlock = source.slice(source.indexOf("function apply("), source.indexOf("function apply(") + 4000);
+
+check(
+  "injectSection 只认 preset / full",
+  /const injectSection = tier === "preset" \|\| tier === "full";/.test(applyBlock),
+  "轻改这行就会让常驻行开始注入",
+);
+check(
+  "injectSection 不包含 lite",
+  !/injectSection[^;]*===\s*"lite"/.test(applyBlock),
+  "lite 必须不注入",
+);
+check(
+  "缺省 tier 是 tools-only（不注入）",
+  /typeof config\?\.tier === "string" \? config\.tier : "tools-only"/.test(applyBlock),
+  "缺省也必须落在不注入那一侧",
+);
+check(
+  "blockKey 与 injectSection 用同一条件",
+  /const blockKey = tier === "preset" \|\| tier === "full"/.test(applyBlock),
+  "两处条件必须一致，否则注入块与门控会脱钩",
+);
+
+// The schema default must agree with apply() in EFFECT (both mean "no inject").
+// We cannot import the schema here without the Host, so check the declaration.
+check(
+  "schema 默认值为 lite（效果同 tools-only）",
+  /tier:\s*z\.string\(\)\.default\("lite"\)/.test(source),
+  "声明与实现各自不同名但同效，注释已说明",
+);
+
+// Two distinct ids in the patch, or the two instances collide in the Loader.
+const patchText = fs.readFileSync(path.join(root, "cordis.patch.yml"), "utf8");
+check("patch 含常驻行 id", /id:\s*vrchat-kb\b/.test(patchText));
+check("patch 含预设行 id", /id:\s*preset-vrchat\b/.test(patchText));
+check("预设内实例 id 与常驻不同", /id:\s*vrchat-kb-preset\b/.test(patchText));
+
 let failed = 0;
 for (const item of checks) {
   if (!item.ok) failed++;

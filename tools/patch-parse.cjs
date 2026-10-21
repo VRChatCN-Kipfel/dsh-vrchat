@@ -33,21 +33,31 @@ const rows = parsed?.[0]?.insert ?? [];
 const preset = rows.find((entry) => entry.id === "preset-vrchat");
 const globalRow = rows.find((entry) => entry.id === "vrchat-kb");
 const persona = preset?.config?.plugins?.find((plugin) => plugin.id === "persona");
-const kb = preset?.config?.plugins?.find((plugin) => plugin.id === "vrchat-kb");
+const kb = preset?.config?.plugins?.find((plugin) => plugin.name === "dsh-vrchat-kb");
 const prefix = persona?.config?.prefix;
 const suffix = persona?.config?.suffix;
 
 const checks = [];
 const check = (name, ok, detail) => checks.push({ name, ok, detail });
 
-// ── no global injection ─────────────────────────────────────────────────
-check("不存在全局 vrchat-kb 行", globalRow === undefined);
-check("只有一行（预设）", rows.length === 1, `${rows.length} 行`);
+// ── two rows: tools always, injection preset-gated ──────────────────────
+//
+// The tools must be reachable from ANY session (the agent should be able to ask
+// the library a question without switching preset), while the persona text must
+// only appear when the user selected the preset. That is two rows, not one.
+check("存在常驻工具行", globalRow !== undefined, String(globalRow?.id));
+check("常驻行 tier 为 lite（只注册工具）", globalRow?.config?.tier === "lite", globalRow?.config?.tier);
+check("常驻行不是预设", globalRow?.name === "dsh-vrchat-kb", globalRow?.name);
+check("共两行（工具 + 预设）", rows.length === 2, `${rows.length} 行`);
 
 // ── preset shape ────────────────────────────────────────────────────────
 check("预设 id 为 vrchat", preset?.config?.id === "vrchat", preset?.config?.id);
 check("预设含 persona 与 vrchat-kb 两个插件", (preset?.config?.plugins?.length ?? 0) === 2);
-check("vrchat-kb 的 tier 为 preset", kb?.config?.tier === "preset", kb?.config?.tier);
+check("预设内 vrchat-kb 的 tier 为 preset", kb?.config?.tier === "preset", kb?.config?.tier);
+check("预设内实例与常驻实例 id 不同", kb?.id !== globalRow?.id, `${kb?.id} vs ${globalRow?.id}`);
+
+// The tier must gate injection, so the two configs cannot be identical.
+check("两个实例的 tier 不同", globalRow?.config?.tier !== kb?.config?.tier);
 
 // ── prefix: identity ────────────────────────────────────────────────────
 check("prefix 是字符串", typeof prefix === "string");
