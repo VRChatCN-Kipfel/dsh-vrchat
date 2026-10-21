@@ -36,22 +36,37 @@ window.__ModuleLoader__.load({
       flex: "0 0 auto",
     };
 
+    /** Compose the one-line summary from a projection view. */
+    function describe(view) {
+      const parts = [];
+      if (typeof view.blockTokens === "number" && view.blockTokens > 0) parts.push(`${view.blockTokens} tok`);
+      const calls =
+        (view.digestCalls ?? 0) + (view.grepCalls ?? 0) + (view.readCalls ?? 0) + (view.scanCalls ?? 0);
+      if (calls > 0) parts.push(`${calls} 次查询`);
+      return parts.length === 0 ? null : `VRChat KB · ${parts.join(" · ")}`;
+    }
+
     /**
      * @param props - slot props; `useProjection` selects one projection key.
      */
     function VrchatKbDock(props) {
       if (props.useProjection === undefined) return null;
       const view = props.useProjection("vrchatKb");
-      if (view === null || view === undefined || view.tokens === undefined) return null;
+      if (view === null || view === undefined) return null;
 
-      const tier = view.tier === "full" ? "full" : "lite";
-      const title = view.provenance ?? "VRChat 知识库注入量（/vrchat stats 查看详情）";
+      const label = describe(view);
+      if (label === null) return null;
+
+      const title =
+        view.lastQuery === null || view.lastQuery === undefined
+          ? "VRChat 知识库注入量（/vrchat stats 查看详情）"
+          : `最近查询：${view.lastQuery}（/vrchat stats 查看详情）`;
 
       return h(
         "div",
         { style: root, title },
         h("span", { style: dot, "aria-hidden": true }),
-        h("span", null, `VRChat KB · ${tier} · ${view.tokens} tok`),
+        h("span", null, label),
       );
     }
 

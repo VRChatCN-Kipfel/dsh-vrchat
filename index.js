@@ -18,10 +18,17 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import z from "@deepseek-ai/schemastery";
+import { z as zod } from "zod";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createStore, answer } from "./lib/search.js";
 import { lintSource, rankFindings, ruleInventory } from "./lib/lint.js";
 import { readPage, grepPages } from "./lib/docs.js";
+import {
+  initLedger,
+  applyLedger,
+  ledgerView,
+  findPriorQuery,
+} from "./lib/ledger.js";
 
 const name = "vrchat-kb";
 
@@ -42,6 +49,37 @@ const Config = z.object({
 });
 
 const dataDir = join(dirname(fileURLToPath(import.meta.url)), "data");
+
+/**
+ * Projection schemas.
+ *
+ * `stateSchema` and `viewSchema` must be zod schemas (the projection service
+ * validates through them), hence the separate zod import beside schemastery.
+ */
+const ledgerEntrySchema = zod.object({
+  normalized: zod.string(),
+  query: zod.string(),
+  at: zod.number(),
+});
+
+const ledgerStateSchema = zod.object({
+  version: zod.number(),
+  blockTokens: zod.number(),
+  queries: zod.array(ledgerEntrySchema),
+  digestCalls: zod.number(),
+  grepCalls: zod.number(),
+  readCalls: zod.number(),
+  scanCalls: zod.number(),
+});
+
+const ledgerViewSchema = zod.object({
+  blockTokens: zod.number(),
+  digestCalls: zod.number(),
+  grepCalls: zod.number(),
+  readCalls: zod.number(),
+  scanCalls: zod.number(),
+  lastQuery: zod.string().nullable(),
+});
 
 /**
  * Verify the build artifacts exist before touching them.
@@ -129,6 +167,41 @@ function apply(ctx, config) {
     text: sectionText,
   });
 
+  // ── Session ledger projection ─────────────────────────────────────────────
+  // One unit serves the Chat row AND `seen` de-duplication. It is a pure fold
+  // over committed events, so it survives resume/fork and costs nothing when
+  // the event is irrelevant (same reference → no downstream recompute).
+  //
+  // Registered through ctx.get because `sessionProjections` is optional: the
+  // plugin still injects without it, it just cannot remember queries.
+  const projections = ctx.get("sessionProjections");
+  if (projections !== undefined) {
+    ctx.effect(() =>
+      projections.register({
+        key: "vrchatKb",
+        stateSchema: ledgerStateSchema,
+        viewSchema: ledgerViewSchema,
+        init: () => initLedger(block?.tokensHigh ?? 0),
+        apply: (state, event) => applyLedger(state, event),
+        wire: {
+          viewSchema: ledgerViewSchema,
+          view: (state) => ledgerView(state),
+        },
+        stateVersion: 1,
+      }),
+    );
+  }
+
+  /** Read the ledger for one session, or undefined when unavailable. */
+  const readLedger = (agent) => {
+    if (projections === undefined || agent?.session === undefined) return undefined;
+    try {
+      return projections.stateOf(agent.session, "vrchatKb");
+    } catch {
+      return undefined;
+    }
+  };
+
   ctx.tools.register(
     defineTool({
       name: "vrchat_kb",
@@ -160,11 +233,30 @@ function apply(ctx, config) {
         },
         render: (_args, value) => [{ type: "text", text: value.text }],
       },
-      async execute(args) {
+      async execute(args, exec) {
         const query = typeof args?.query === "string" ? args.query.trim() : "";
         if (query.length === 0) throw new Error("vrchat_kb requires a non-empty query");
         const limit =
           Number.isSafeInteger(args?.limit) && args.limit > 0 ? Math.min(args.limit, 12) : maxPages;
+
+        // `seen`: this session already answered this question. Re-running the
+        // digest would spend the same tokens on the same pages, so say so and
+        // let the caller decide — the tool informs, it does not refuse.
+        const ledger = readLedger(exec.agent);
+        const prior = findPriorQuery(ledger, query);
+        if (prior !== undefined) {
+          const result = answer(data, query, { limit, charBudget });
+          return {
+            text:
+              `本会话第 ${ledger.queries.indexOf(prior) + 1} 条已查过等价问题：「${prior.query}」。\n` +
+              "下面是同样查询的结果（若要不同角度，请换关键词而不是重复调用）：\n\n" +
+              result.text,
+            hit: result.hit,
+            pageCount: result.pageCount,
+            routes: result.routes,
+          };
+        }
+
         const result = answer(data, query, { limit, charBudget });
         return {
           text: result.text,
@@ -542,59 +634,88 @@ function apply(ctx, config) {
   // turn, so asking "how much am I paying for this block" costs no tokens.
   const commands = ctx.get("commands");
   const tokenMeter = ctx.get("tokenMeter");
+
+  /** Price one system-prompt string through the router's own estimator. */
+  const priceText = (text) =>
+    tokenMeter?.estimateMessage === undefined
+      ? null
+      : tokenMeter.estimateMessage({
+          role: "system",
+          content: [{ type: "text", text }],
+          source: { kind: "system-prompt" },
+        });
+
   if (commands !== undefined) {
     ctx.effect(() =>
       commands.register({
         name: "vrchat",
-        description: "报告 VRChat 知识库的注入块与实测 token 占用（stats）",
-        input: { hint: "stats" },
+        description: "VRChat 知识库：stats 报 token 与用量 / stale 查语料是否过期 / scan 扫描源文件",
+        input: { hint: "stats | stale | scan <path>" },
         handler: (invocation) => {
           const raw = invocation.rawInput.trim();
-          if (raw !== "" && raw !== "stats") {
-            return { kind: "error", text: `未知子命令「${raw}」。可用：stats` };
-          }
+          const [subcommand, ...rest] = raw.split(/\s+/).filter((part) => part.length > 0);
+          const argument = rest.join(" ").trim();
 
-          const measured = (label, text) => {
-            const chars = text.length;
-            const estimated = tokenMeter?.estimateMessage === undefined
-              ? null
-              : tokenMeter.estimateMessage({
-                  role: "system",
-                  content: [{ type: "text", text }],
-                  source: { kind: "system-prompt" },
-                });
-            return { label, chars, estimated };
-          };
+          if (subcommand === undefined || subcommand === "stats") {
+            const measured = priceText(sectionText);
+            const lines = [
+              `VRChat KB · tier=${tier}`,
+              `  注入块：${sectionText.length} 字符 / ${measured ?? "—"} tok（router 实测）`,
+              `  manifest 估算：${block?.tokensLow ?? "?"}–${block?.tokensHigh ?? "?"} tok（CJK/ASCII 分算）`,
+              `  ${provenance}`,
+              `  语料：${meta.pageCount} 页，路由 ${data.routes.length} 条，规则 ${ruleInventory().length} 条`,
+            ];
 
-          const rows = [
-            measured(tier === "full" ? "full（红线+覆盖+三域块）" : "lite（红线块）", sectionText),
-            measured("manifest 声明", JSON.stringify(meta.blocks?.[blockKey] ?? {})),
-          ];
-
-          // Corpus pressure: the session as the route prices it right now.
-          let sessionLine = "整会话压力：不可用（本路由未提供 tokenMeter）";
-          if (tokenMeter !== undefined && invocation.agent?.session !== undefined) {
-            try {
-              const m = tokenMeter.measure(invocation.agent.session);
-              sessionLine =
-                `整会话压力：${m.totalTokens} tok（基线 ${m.baseline.kind}=${m.baseline.tokens}，表面 ${m.surfaceTokens}）`;
-            } catch (error) {
-              sessionLine = `整会话压力：测量失败（${String(error?.message ?? error)}）`;
+            const ledger = readLedger(invocation.agent);
+            if (ledger === undefined) {
+              lines.push("  本会话用量：不可用（未注册 sessionProjections）");
+            } else {
+              lines.push(
+                `  本会话用量：digest ${ledger.digestCalls} / grep ${ledger.grepCalls} / read ${ledger.readCalls} / scan ${ledger.scanCalls}`,
+                `  已查问题：${ledger.queries.length} 条${ledger.queries.length === 0 ? "" : `，最近「${ledger.queries.at(-1).query}」`}`,
+              );
             }
+
+            if (tokenMeter !== undefined && invocation.agent?.session !== undefined) {
+              try {
+                const m = tokenMeter.measure(invocation.agent.session);
+                lines.push(
+                  `  整会话压力：${m.totalTokens} tok（基线 ${m.baseline.kind}=${m.baseline.tokens}，表面 ${m.surfaceTokens}）`,
+                );
+              } catch (error) {
+                lines.push(`  整会话压力：测量失败（${String(error?.message ?? error)}）`);
+              }
+            }
+
+            lines.push(`  section 名 = vrchat-kb（预设同名会 shadow 全局）`);
+            return { kind: "success", text: lines.join("\n") };
           }
 
-          const lines = [
-            `VRChat KB · tier=${tier}`,
-            rows
-              .map((row) => `  ${row.label}：${row.chars} 字符 / ${row.estimated ?? "—"} tok（router 实测）`)
-              .join("\n"),
-            `  manifest 估算：${block?.tokensLow ?? "?"}–${block?.tokensHigh ?? "?"} tok（CJK/ASCII 分算）`,
-            `  ${provenance}`,
-            `  语料：${meta.pageCount} 页，路由 ${data.routes.length} 条`,
-            sessionLine,
-            `  section 名 = vrchat-kb（预设同名会 shadow 全局）`,
-          ];
-          return { kind: "success", text: lines.join("\n") };
+          if (subcommand === "stale") {
+            const builtAt = Date.parse(String(meta.builtAt ?? ""));
+            const ageDays = Number.isNaN(builtAt) ? null : Math.floor((Date.now() - builtAt) / 86400000);
+            return {
+              kind: "success",
+              text: [
+                `语料快照：库 v${meta.libraryVersion ?? "?"} / ${meta.pageCount ?? "?"} 页`,
+                `构建时间：${String(meta.builtAt ?? "?")}${ageDays === null ? "" : `（${ageDays} 天前）`}`,
+                "若上游知识库已更新，运行 node tools/build-knowledge.mjs 重建并按需重装。",
+              ].join("\n"),
+            };
+          }
+
+          if (subcommand === "scan") {
+            if (argument.length === 0) return { kind: "error", text: "用法：/vrchat scan <路径>" };
+            return {
+              kind: "success",
+              text: `请让模型调用 vrchat_kb_scan(paths: ["${argument}"])。斜杠命令不读文件系统，扫描由工具执行。`,
+            };
+          }
+
+          return {
+            kind: "error",
+            text: `未知子命令「${subcommand}」。可用：stats / stale / scan <path>`,
+          };
         },
       }),
     );

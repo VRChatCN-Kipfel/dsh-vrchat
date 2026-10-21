@@ -120,6 +120,10 @@ async function importWithStubs() {
 
   const patched = source
     .replace(/import z from "@deepseek-ai\/schemastery";/, "const z = globalThis.__z;")
+    // zod is a real dependency and installs with the package, but it is absent
+    // from the workspace, so stub it for the offline compiler run. Projection
+    // schemas are not compiled by `defineTool`, which is what this validates.
+    .replace(/import \{ z as zod \} from "zod";/, "const zod = globalThis.__z;")
     .replace(
       /import \{ defineTool \} from "@deepseek-ai\/dsh-tools";/,
       "const defineTool = (d) => { globalThis.__capture.push(d); return d; };",
