@@ -1,0 +1,70 @@
+/**
+ * Client half: one ambient line under the composer reporting the cost of the
+ * VRChat KB injection.
+ *
+ * Deliberately additive — a fresh slot id sits BESIDE the shipped entries
+ * (`stats`, `better-stats`, `dsh-ppt`) instead of replacing one, and this slot
+ * is `replaceRisk: none`.
+ *
+ * It carries no transport of its own: the numbers reach it by the Host
+ * declaring a `wire.view` on a session projection, which the Client reads
+ * through `props.useProjection`. Until that projection is registered the line
+ * simply renders nothing, so the dock never shows a wrong number.
+ */
+window.__ModuleLoader__.load({
+  id: "dsh-vrchat-kb",
+  factory(require) {
+    const React = require("react");
+    const h = React.createElement;
+
+    /** Theme tokens only — literal colors stay reserved for artwork. */
+    const root = {
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      padding: "2px 8px",
+      font: "var(--dsw-font-xxs-12)",
+      color: "var(--dsw-alias-label-secondary)",
+      whiteSpace: "nowrap",
+      userSelect: "none",
+    };
+    const dot = {
+      width: "5px",
+      height: "5px",
+      borderRadius: "50%",
+      background: "var(--dsw-alias-state-business-primary)",
+      flex: "0 0 auto",
+    };
+
+    /**
+     * @param props - slot props; `useProjection` selects one projection key.
+     */
+    function VrchatKbDock(props) {
+      if (props.useProjection === undefined) return null;
+      const view = props.useProjection("vrchatKb");
+      if (view === null || view === undefined || view.tokens === undefined) return null;
+
+      const tier = view.tier === "full" ? "full" : "lite";
+      const title = view.provenance ?? "VRChat 知识库注入量（/vrchat stats 查看详情）";
+
+      return h(
+        "div",
+        { style: root, title },
+        h("span", { style: dot, "aria-hidden": true }),
+        h("span", null, `VRChat KB · ${tier} · ${view.tokens} tok`),
+      );
+    }
+
+    return {
+      inject: ["slots"],
+      apply(ctx) {
+        ctx.slots.inject("conversation.composer.dock", () =>
+          ctx.slots.register(
+            { name: "conversation.composer.dock", id: "vrchat-kb", order: 30 },
+            VrchatKbDock,
+          ),
+        );
+      },
+    };
+  },
+});

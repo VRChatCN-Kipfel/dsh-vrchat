@@ -1,0 +1,37 @@
+{
+  "name": "dsh-vrchat-kb",
+  "version": "0.3.1",
+  "private": true,
+  "description": "VRChat creator knowledge base for DeepSeek Harness: proactive red-line injection plus a purpose-built query tool, so the agent never has to locate a file. / VRChat 创作知识库：红线主动注入 + 专用查询工具，agent 无需自己找文件位置。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "default": "./index.js"
+    },
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "cordis.patch.yml",
+    "data",
+    "locale/*.json"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "license": "MIT"
+}

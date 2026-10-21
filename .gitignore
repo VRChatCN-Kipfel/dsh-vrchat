@@ -7,3 +7,23 @@ Desktop.ini
 .DS_Store
 .vscode/
 .idea/
+
+# Build artifacts.
+#
+# `data/` is produced by `node tools/build-knowledge.mjs` from `content-src/`
+# plus the `VRChat-Agent-Creator-Library` submodule. The only artifact large
+# enough to matter is `pages.json` (~3.8 MB), but ALL of `data/` is derived, so
+# none of it is tracked.
+#
+# IMPORTANT — this is not just about repository size: the bundle ships `data/`
+# through its `files` whitelist, and the plugin reads it during `apply()`.
+# A Harness entry that throws in `apply()` fails STARTUP (dsh-app-boot treats
+# every inactive entry as fatal at boot), so an incomplete `data/` would take the
+# whole app down. Always run the build before `install_bundle`:
+#
+#     node tools/build-knowledge.mjs
+#
+data/
+
+# Validation/scratch files
+.index-check.mjs

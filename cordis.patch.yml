@@ -1,0 +1,35 @@
+# dsh-vrchat-kb — VRChat 创作知识库
+#
+# 两类行，靠「同名 section」联动，无需协调代码：
+#   1. vrchat-kb (tier: lite)   ← 全局默认，只注入红线（~600 tok）
+#   2. preset-vrchat 内的 vrchat-kb (tier: full)
+#      ← 预设作用域注册同名 section，shadow 掉全局那条，注入红线 + 全量域块
+#
+# 知识内容随包分发（data/），运行期不读工作区、不联网。
+- insert:
+    - id: vrchat-kb
+      name: dsh-vrchat-kb
+      config:
+        tier: lite
+
+    - id: preset-vrchat
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: vrchat
+        name: VRChat 创作模式
+        description: VRChat World/Avatar 创作：Udon/Shader/网络同步红线与全量域约束常驻注入。
+        order: 20
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是 VRChat World / Avatar 创作助手，工作目录 {{cwd}}。
+
+                本次会话已随系统提示注入本机的 VRChat 权威约束（Udon VM 限制、网络同步、Persistence 配额、
+                Avatar/Shader 平台规则）。这些是实测结论而非通用建议：与你的默认直觉冲突时以注入内容为准。
+                具体 API 签名、组件用法、Shader 参数不确定时，先调用 vrchat_kb 工具查证，不要凭印象作答。
+          - id: vrchat-kb
+            name: dsh-vrchat-kb
+            config:
+              tier: full
