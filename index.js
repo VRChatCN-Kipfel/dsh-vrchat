@@ -59,12 +59,16 @@ const dataDir = join(dirname(fileURLToPath(import.meta.url)), "data");
 const ledgerEntrySchema = zod.object({
   normalized: zod.string(),
   query: zod.string(),
+  turn: zod.number(),
+  generation: zod.number(),
   at: zod.number(),
 });
 
 const ledgerStateSchema = zod.object({
   version: zod.number(),
   blockTokens: zod.number(),
+  turn: zod.number(),
+  generation: zod.number(),
   queries: zod.array(ledgerEntrySchema),
   digestCalls: zod.number(),
   grepCalls: zod.number(),
@@ -74,6 +78,7 @@ const ledgerStateSchema = zod.object({
 
 const ledgerViewSchema = zod.object({
   blockTokens: zod.number(),
+  turn: zod.number(),
   digestCalls: zod.number(),
   grepCalls: zod.number(),
   readCalls: zod.number(),
@@ -239,17 +244,19 @@ function apply(ctx, config) {
         const limit =
           Number.isSafeInteger(args?.limit) && args.limit > 0 ? Math.min(args.limit, 12) : maxPages;
 
-        // `seen`: this session already answered this question. Re-running the
-        // digest would spend the same tokens on the same pages, so say so and
-        // let the caller decide — the tool informs, it does not refuse.
+        // `seen`: only meaningful within the SAME turn and the SAME compaction
+        // generation — `findPriorQuery` enforces both. Across turns the reply is
+        // noise; after compaction the earlier digest was replaced out of the
+        // visible conversation, so claiming "already asked" would hand the model
+        // a claim it cannot look up. In either case, answer fresh.
         const ledger = readLedger(exec.agent);
         const prior = findPriorQuery(ledger, query);
         if (prior !== undefined) {
           const result = answer(data, query, { limit, charBudget });
           return {
             text:
-              `本会话第 ${ledger.queries.indexOf(prior) + 1} 条已查过等价问题：「${prior.query}」。\n` +
-              "下面是同样查询的结果（若要不同角度，请换关键词而不是重复调用）：\n\n" +
+              `本轮已查过等价问题：「${prior.query}」，结果就在上文，不必重复调用；换关键词才能得到不同角度。\n` +
+              "下面是同一查询的内容，以备对照：\n\n" +
               result.text,
             hit: result.hit,
             pageCount: result.pageCount,

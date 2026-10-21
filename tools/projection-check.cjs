@@ -37,8 +37,24 @@ check("ledger 不修改入参", !/\bstate\.\w+\s*=[^=]/.test(ledger), "should bu
 check("无关事件返回同一引用", /return state;/.test(ledger));
 
 // ── only existing event types are folded ─────────────────────────────────
-check("只折叠 tool/call", /event\.type !== "tool\/call"/.test(ledger));
+check("折叠 tool/call", /event\.type !== "tool\/call"/.test(ledger));
+check("记录轮边界 turn/start", /event\.type === "turn\/start"/.test(ledger));
+check(
+  "压缩使记录失效 compaction/start",
+  /event\.type === "compaction\/start"/.test(ledger) && /generation: state\.generation \+ 1/.test(ledger),
+);
 check("不引入自定义事件类型", !/session\.append\(/.test(source));
+
+// ── the two scope rules must both be enforced in the lookup ─────────────
+check(
+  "seen 判定同时校验 turn 与 generation",
+  /entry\.turn === state\.turn/.test(ledger) && /entry\.generation === state\.generation/.test(ledger),
+);
+check(
+  "提示文案说明是「本轮」而非「本会话」",
+  /本轮已查过等价问题/.test(source),
+  "cross-turn or post-compaction must not claim already-asked",
+);
 
 // ── client reads the same key the Host registers ─────────────────────────
 const client = fs.readFileSync(path.join(root, "client.js"), "utf8");
