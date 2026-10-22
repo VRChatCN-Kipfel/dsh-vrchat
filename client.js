@@ -36,10 +36,22 @@ window.__ModuleLoader__.load({
       flex: "0 0 auto",
     };
 
-    /** Compose the one-line summary from a projection view. */
+    /**
+     * Compose the one-line summary from a projection view.
+     *
+     * The row shows the amount THIS session actually pays. The view carries both
+     * tiers (`blockTokensLite` / `blockTokensPreset`) because the projection keeps
+     * one definition per key, so a single field could only ever reflect whichever
+     * instance registered first. The client cannot know which preset is active,
+     * so it shows the smaller figure — the always-on tier — rather than a number
+     * that might belong to the other mode.
+     */
     function describe(view) {
       const parts = [];
-      if (typeof view.blockTokens === "number" && view.blockTokens > 0) parts.push(`${view.blockTokens} tok`);
+      const tokens = [view.blockTokensLite, view.blockTokensPreset].filter(
+        (value) => typeof value === "number" && value > 0,
+      );
+      if (tokens.length > 0) parts.push(`≥${Math.min(...tokens)} tok`);
       const calls =
         (view.digestCalls ?? 0) + (view.grepCalls ?? 0) + (view.readCalls ?? 0) + (view.scanCalls ?? 0);
       if (calls > 0) parts.push(`${calls} 次查询`);

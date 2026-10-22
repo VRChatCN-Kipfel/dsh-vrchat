@@ -1,6 +1,16 @@
 # DSH / Mnemon local state
 .mnemon/
 
+# AgentTeams run state: the captain/member transcripts are session scratch, and
+# they carry absolute paths and machine specifics. Not project knowledge.
+.agent-teams/
+
+# One-off review reports from an audit run. Useful while the run is live, stale
+# the moment the code moves — the findings that mattered are encoded as checks in
+# tools/, so this is the working copy rather than a deliverable.
+factcheck-*.md
+contract-check-*.md
+
 # OS / editor noise
 Thumbs.db
 Desktop.ini

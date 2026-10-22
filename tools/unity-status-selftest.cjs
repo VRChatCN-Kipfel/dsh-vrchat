@@ -37,7 +37,31 @@ async function main() {
   // ── process classification ──────────────────────────────────────────────
   const hubProc = mod.classifyProcess({ pid: 100, name: "Unity Hub", executablePath: "D:/Hub/Unity Hub.exe", commandLine: hubLine });
   check("Hub 被识别", hubProc?.kind === "hub");
-  check("Hub 带出项目路径", hubProc?.projectPath === "E:\\proj\\demo");
+  check("Hub 带出项目路径", hubProc?.projectPath === "E:/proj/demo", String(hubProc?.projectPath));
+
+  // Unity Hub itself writes DOUBLED separators (measured on this machine:
+  // `-projectPath "E:\\Users\\...\\gitui-merge-fixture"`). Echoing that back would
+  // teach the model a form no user types, and it looks like an escaping bug.
+  const doubled = mod.classifyProcess({
+    pid: 101,
+    name: "Unity Hub.exe",
+    commandLine: '"D:\\Program Files\\Unity Hub\\Unity Hub.exe" "-projectPath" "E:\\\\Users\\\\30885\\\\gitui"',
+  });
+  check("双反斜杠被归一", doubled?.projectPath === "E:/Users/30885/gitui", String(doubled?.projectPath));
+  check("归一后不含双分隔符", !/\\\\|\\\/|\/\//.test(doubled?.projectPath ?? "x"), String(doubled?.projectPath));
+
+  // A UNC share keeps its leading double backslash: collapsing it would change
+  // which host is addressed. Built with String.fromCharCode so the literal
+  // backslashes cannot be mangled by escaping at three levels at once.
+  const BS = String.fromCharCode(92);
+  const uncLine = `Unity.exe -projectPath "${BS}${BS}nas${BS}${BS}share${BS}proj"`;
+  check("UNC 测试输入确实含双反斜杠", uncLine.includes(`${BS}${BS}nas`), uncLine);
+  const unc = mod.classifyProcess({ pid: 102, name: "Unity.exe", commandLine: uncLine });
+  check("UNC 前缀保留", unc?.projectPath?.startsWith("//") === true, String(unc?.projectPath));
+  check("UNC 只保留前两个斜杠", /^\/\/[^/]/.test(unc?.projectPath ?? ""), String(unc?.projectPath));
+  check("UNC 其余部分为单斜杠", unc?.projectPath === "//nas/share/proj", String(unc?.projectPath));
+
+  check("尾部斜杠被去掉", mod.classifyProcess({ pid: 103, name: "Unity.exe", commandLine: 'Unity.exe -projectPath "D:/p/"' })?.projectPath === "D:/p");
 
   const editorProc = mod.classifyProcess({
     pid: 200, name: "Unity.exe", executablePath: "D:/Editor/Unity.exe",
@@ -49,6 +73,17 @@ async function main() {
 
   check("授权客户端不被当成编辑器", mod.classifyProcess({ pid: 300, name: "Unity.Licensing.Client", commandLine: "x" }) === null);
   check("无关进程返回 null", mod.classifyProcess({ pid: 400, name: "notepad.exe", commandLine: "" }) === null);
+
+  // A process whose CommandLine is withheld (higher integrity, or another user's)
+  // is OPAQUE — not "no evidence". It must be flagged rather than silently
+  // reported as having no arguments, which reads as "no MCP here".
+  const opaqueHub = mod.classifyProcess({ pid: 450, name: "Unity Hub.exe", commandLine: null });
+  check("不可读 CommandLine 的 Hub 仍被识别", opaqueHub?.kind === "hub", String(opaqueHub?.kind));
+  check("不可读时标记 commandLineUnavailable", opaqueHub?.commandLineUnavailable === true);
+  const opaqueEditor = mod.classifyProcess({ pid: 451, name: "Unity.exe", commandLine: "" });
+  check("不可读的编辑器也标记", opaqueEditor?.commandLineUnavailable === true);
+  const readable = mod.classifyProcess({ pid: 452, name: "Unity.exe", commandLine: 'Unity.exe -projectPath "D:/p"' });
+  check("可读时不误标", readable?.commandLineUnavailable !== true);
 
   const serverProc = mod.classifyProcess({
     pid: 500, name: "gamedev-mcp-server.exe", commandLine: "gamedev-mcp-server.exe --port=8080 --client-transport=stdio",
@@ -151,6 +186,27 @@ async function main() {
   check("说明 token 不在本工具范围", /token 不在本工具范围内/.test(withEvidence));
   check("报告不含凭据", !/Bearer|Authorization/.test(withEvidence));
   check("提示 unity-mcp-cli status", /unity-mcp-cli/.test(withEvidence));
+
+  // ── a count must be accounted for, not silently reduced ─────────────────
+  //
+  // A Hub spawns helper processes with no `-projectPath`. Reporting "Hub 4 个"
+  // while listing only one reads as missing data; the rest are named instead.
+  const manyHubs = mod.renderReport({
+    processes: [
+      { kind: "hub", pid: 1, name: "Unity Hub.exe", projectPath: "E:/proj", args: {}, raw: "" },
+      { kind: "hub", pid: 2, name: "Unity Hub.exe", projectPath: null, args: {}, raw: "" },
+      { kind: "hub", pid: 3, name: "Unity Hub.exe", projectPath: null, args: {}, raw: "" },
+      { kind: "hub", pid: 4, name: "Unity Hub.exe", projectPath: null, args: {}, raw: "" },
+    ],
+    projects: [],
+    commandEvidence: [],
+    cliDetected: false,
+  });
+  check("报告头部说 4 个 Hub", /Hub 4 个/.test(manyHubs), manyHubs.split("\n")[0]);
+  check("列出带项目参数的那一个", /◆ Unity Hub · PID 1\b/.test(manyHubs));
+  check("说明另外 3 个是辅助进程", /另有 3 个 Unity Hub 辅助进程/.test(manyHubs), "否则读者以为丢了 3 条");
+  check("解释辅助进程为何无项目路径", /不指向任何项目/.test(manyHubs));
+  check("没把辅助进程算成缺失", /属正常现象/.test(manyHubs));
 
   let failed = 0;
   for (const item of checks) {

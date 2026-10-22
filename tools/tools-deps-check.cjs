@@ -41,19 +41,23 @@ const blocks = toolBlocks(source);
 const checks = [];
 const check = (name, ok, detail) => checks.push({ name, ok, detail });
 
-check("找到 6 个工具块", blocks.size === 6, [...blocks.keys()].join(", "));
+check("找到 8 个工具块", blocks.size === 8, [...blocks.keys()].join(", "));
 
 /**
  * Which data source each tool needs.
  * `corpus`   reads page bodies
  * `derived`  reads a shipped artifact
  * `runtime`  reads the live machine, no KB data at all
+ * `index`    reads only page METADATA, never bodies — so it works without the
+ *            corpus and must not touch `storeFor().bodyOf`
  */
 const EXPECTED = {
   vrchat_kb: "corpus",
   vrchat_kb_grep: "corpus",
   vrchat_kb_read: "corpus",
   vrchat_kb_api: "derived+corpus",
+  vrchat_kb_filter: "index",
+  vrchat_kb_list: "index",
   vrchat_kb_unity: "runtime",
   vrchat_kb_scan: "runtime",
 };
@@ -81,6 +85,21 @@ for (const [tool, needs] of Object.entries(EXPECTED)) {
       "runtime tools must not read the KB corpus",
     );
   }
+  if (needs === "index") {
+    // Metadata-only tools must NOT read bodies: that is the whole reason they keep
+    // working when the corpus is missing, and reading bodies would cost a page read
+    // per answer for information the index already has.
+    check(
+      `${tool} 只读元数据不读正文`,
+      !/bodyOf|answer\(/.test(block),
+      "index 类工具不应触发语料读取",
+    );
+    check(
+      `${tool} 在无语料时仍可用`,
+      !/NO_CORPUS_TEXT/.test(block) || /describeLibraries|filterIndex/.test(block),
+      "元数据工具不该照抄语料缺失文案就放弃",
+    );
+  }
 
   // No tool may tell the USER to run a build script: that is a maintainer step,
   // and a user cannot act on it.
@@ -103,7 +122,12 @@ check("scan 不把会话目录当语料", !/findCorpusRoot|corpusRoot/.test(scan
 // The unity tool probes the machine and must not read KB data either.
 const unity = blocks.get("vrchat_kb_unity") ?? "";
 check("unity 不调用 storeFor", !/storeFor\(/.test(unity));
-check("unity 用 shell 服务", /ctx\.get\("shell"\)/.test(unity));
+// It runs pwsh DIRECTLY, not through the shell service: that service returned an
+// empty process list for this exact command while a direct spawn returned five.
+// A silent zero is worse than an error, so the layer that lost data is gone.
+check("unity 直接执行 pwsh（不经 shell 服务）", /runPwshJson\(/.test(unity));
+check("unity 不依赖可选的 shell 服务", !/ctx\.get\("shell"\)/.test(unity));
+check("unity 的命令是固定只读枚举", /Get-CimInstance Win32_Process/.test(unity));
 
 // ── tier ↔ injection contract ──────────────────────────────────────────────
 //
@@ -128,10 +152,19 @@ check(
   /typeof config\?\.tier === "string" \? config\.tier : "tools-only"/.test(applyBlock),
   "缺省也必须落在不注入那一侧",
 );
+// `blockKey` used to select which block to inject, so it had to agree with
+// `injectSection`. The section is now a short status note rather than a block
+// copy, so `blockKey` is gone — assert the REPLACEMENT contract instead: the
+// section must not re-emit either block, or the duplication returns.
 check(
-  "blockKey 与 injectSection 用同一条件",
-  /const blockKey = tier === "preset" \|\| tier === "full"/.test(applyBlock),
-  "两处条件必须一致，否则注入块与门控会脱钩",
+  "section 不再按 blockKey 复制注入块",
+  !/const blockKey =/.test(applyBlock),
+  "blockKey 已随 section 降级删除",
+);
+check(
+  "section 不内联 t0 或 always-load",
+  !/baseText/.test(applyBlock) && !/sectionText = `\$\{data\.t0\}/.test(applyBlock),
+  "若恢复内联，99.6% 的重复会回来",
 );
 
 // The schema default must agree with apply() in EFFECT (both mean "no inject").

@@ -33,7 +33,7 @@ async function main() {
   check("超长查询被截断", mod.normalizeQuery("x".repeat(500)).length <= 160);
 
   // ── rule 1: same turn → remembered ──────────────────────────────────────
-  let state = mod.initLedger(700);
+  let state = mod.initLedger({ lite: 623, preset: 3040 });
   state = mod.applyLedger(state, turnStart(1, 1));
   state = mod.applyLedger(state, toolCall("vrchat_kb", { query: "Udon 同步变量" }, 2));
 
@@ -61,7 +61,7 @@ async function main() {
   );
 
   // ── rule 2: compaction invalidates ──────────────────────────────────────
-  let s2 = mod.initLedger(700);
+  let s2 = mod.initLedger({ lite: 623, preset: 3040 });
   s2 = mod.applyLedger(s2, turnStart(1, 1));
   s2 = mod.applyLedger(s2, toolCall("vrchat_kb", { query: "Udon 同步变量" }, 2));
   check("压缩前命中", mod.findPriorQuery(s2, "Udon 同步变量") !== undefined);
@@ -94,7 +94,7 @@ async function main() {
   );
 
   // ── counters ────────────────────────────────────────────────────────────
-  let counted = mod.initLedger(0);
+  let counted = mod.initLedger({ lite: 623, preset: 3040 });
   counted = mod.applyLedger(counted, turnStart(1, 1));
   counted = mod.applyLedger(counted, toolCall("vrchat_kb", { query: "a" }, 2));
   counted = mod.applyLedger(counted, toolCall("vrchat_kb_grep", { pattern: "x" }, 3));
@@ -122,13 +122,22 @@ async function main() {
 
   // ── view ───────────────────────────────────────────────────────────────
   const view = mod.ledgerView(counted);
-  check("view 带注入块 token", view.blockTokens === 0);
+  // BOTH tiers live in the state, because the projection keeps one definition
+  // per key: a single field would be whichever instance applied first.
+  check("view 带 lite 档 token", view.blockTokensLite === 623, String(view.blockTokensLite));
+  check("view 带 preset 档 token", view.blockTokensPreset === 3040, String(view.blockTokensPreset));
   check("view 带轮次", view.turn === 1);
   check("view 带最近查询", view.lastQuery === "a", view.lastQuery);
-  check("空账本 lastQuery 为 null", mod.ledgerView(mod.initLedger(0)).lastQuery === null);
+  check("空账本 lastQuery 为 null", mod.ledgerView(mod.initLedger({ lite: 0, preset: 0 })).lastQuery === null);
+  // A legacy numeric argument must still work rather than produce NaN.
+  const legacy = mod.initLedger(500);
+  check("旧式数字参数仍可用", legacy.blockTokensLite === 500 && legacy.blockTokensPreset === 0, JSON.stringify({
+    lite: legacy.blockTokensLite,
+    preset: legacy.blockTokensPreset,
+  }));
 
   // ── cap ────────────────────────────────────────────────────────────────
-  let many = mod.initLedger(0);
+  let many = mod.initLedger({ lite: 0, preset: 0 });
   many = mod.applyLedger(many, turnStart(1, 0));
   for (let i = 0; i < 60; i++) many = mod.applyLedger(many, toolCall("vrchat_kb", { query: `q${i}` }, i + 1));
   check("账本有上限", many.queries.length <= 40, String(many.queries.length));

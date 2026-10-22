@@ -71,6 +71,22 @@ if (typeof prefix === "string") {
   check("prefix 续行未截断", prefix.includes("SendCustomEventDelayedSeconds"));
   check("prefix 提到四个工具", ["vrchat_kb_api", "vrchat_kb_grep", "vrchat_kb_read", "vrchat_kb_scan"].every((t) => prefix.includes(t)));
   check("prefix 提到运行时探测工具", /vrchat_kb_unity/.test(prefix));
+  // The two metadata tools exist because frontmatter is a FILTER, not text. If the
+  // prompt does not name them, the agent falls back to grep and gets 414 hits.
+  check("prefix 提到筛选工具", /vrchat_kb_filter/.test(prefix));
+  check("prefix 提到列库工具", /vrchat_kb_list/.test(prefix));
+  check("说明元数据是筛选而非文本搜索", /结构化筛选/.test(prefix) && /命中全部 414 页/.test(prefix));
+  check("说明 read 行号不漂移", /行号仍是文件真实行号/.test(prefix));
+
+  // The probe can be blind without being wrong: permissions and sessions hide
+  // processes. The prompt must say so BEFORE the agent hits the situation, because
+  // the failure mode is confidently telling a user "you did not install it".
+  check("说明「看不到」不等于「没有」", /看不到东西，不等于用户没有/.test(prefix));
+  check("提到权限不对称", /以管理员身份运行.*普通权限|权限不对称/.test(prefix));
+  check("说明参数读不到是观测限制", /不是「没有 MCP」/.test(prefix));
+  check("要求先说观测限制再给复核办法", /先说这是观测限制/.test(prefix));
+  check("禁止断言用户没装", /不要断言「你没装/.test(prefix));
+  check("用户说开着时先怀疑权限", /先怀疑权限，不要先怀疑他/.test(prefix));
   check("说明它只读不读凭据", /只读、不读凭据/.test(prefix));
   check("要求 agent 自己确认端点与 token", /自己去看该 PID 的启动参数/.test(prefix));
   check("prefix 无转义残留", !prefix.includes("\\n"));
@@ -80,7 +96,12 @@ if (typeof prefix === "string") {
   check("工具段有强制语气", /不是可选装饰/.test(prefix), "tools must be framed as required, not optional");
   check("写代码前要求查 API", /写代码前.*vrchat_kb_api|vrchat_kb_api.*查/.test(prefix));
   check("完成后要求 scan 自查", /vrchat_kb_scan.*自查|调用 `vrchat_kb_scan`/.test(prefix));
-  check("说明未收录≠不可用", /未收录.*不可用|不可用.*未收录/.test(prefix));
+  // "not listed ≠ unavailable" must survive, but the reason is now explicit: the
+  // shipped table is a subset, so the reader has to fall back to the source table.
+  check("说明未收录≠不可用", /未命中不代表不可用|未收录.*不可用|不可用.*未收录/.test(prefix));
+  check("说清 api 表是摘录子集", /摘录子集/.test(prefix));
+  check("给出上游原表规模", /1387/.test(prefix) && /9579/.test(prefix));
+  check("说明未暴露的三种后果", /静默无效果/.test(prefix) && /崩溃/.test(prefix));
 
   // Process: the difference between a manual and an expert is whether it says
   // how to approach a request, not just which rules exist.
@@ -92,8 +113,20 @@ if (typeof prefix === "string") {
   check("含 Quest 面数阈值", /20,000/.test(prefix));
   check("含 Quest 材质内存", /40 MB/.test(prefix));
   check("含 Quest 骨骼上限", /150/.test(prefix));
-  check("含 Quest Shader 目录限制", /VRChat\/Mobile\//.test(prefix));
-  check("含 Quest 禁用 Unity Constraints", /不能使用 Unity Constraints/.test(prefix));
+
+  // These two assertions used to pin statements the CORPUS CONTRADICTS: the
+  // corpus says Avatar-side Unity Constraints are auto-converted and recommended,
+  // and that community shaders ship Quest variants. Assert the corrected claims so
+  // the old mistake cannot return silently.
+  check("PC Poor 线为 70,000（不是 Quest 的 20,000）", /面数 70,000/.test(prefix));
+  check("警告别把 Quest 数字当 PC", /别把 Quest 的数字当成 PC/.test(prefix));
+  check("说清性能指标远多于四项", /20\+ 项/.test(prefix));
+  check("Quest Shader 提到社区变体可用", /Micro\/Nano|lilToon 的 Quest 版/.test(prefix));
+  check("说明 Unity Constraints 会自动转换", /自动转换[为成].*VRChat Constraints/.test(prefix));
+  check("不再断言 Quest 禁用 Unity Constraints", !/不能使用 Unity Constraints/.test(prefix));
+  check("带宽分平台（PC 11 / Quest 5）", /11 KB\/s（PC）|11 KB\/s（PC）\/ 约 5/.test(prefix) || /约 5 KB\/s（Quest）/.test(prefix));
+  check("5–10 倍只用于 GPU，不泛指", !/相差 5–10 倍的性能世界/.test(prefix));
+  check("工具段标明来源不同", /不在那 414 页里/.test(prefix));
 
   // Every "why": a rule list without reasons reads as dogma.
   check("集合禁用带原因", /没有泛型集合运行时/.test(prefix));

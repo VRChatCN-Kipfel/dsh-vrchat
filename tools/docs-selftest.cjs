@@ -40,19 +40,36 @@ async function main() {
   const checks = [];
   const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail });
 
-  // ── path translation (the only thing this layer owns) ────────────────────
+  // ── path resolution: library-relative only ───────────────────────────────
+  //
+  // The corpus location is the plugin's business. Accepting an absolute install
+  // path would mean the agent is expected to know where the files sit, which it
+  // must not — and it would break the moment the package is installed elsewhere.
   check("精确路径", docs.resolvePage(paths, "concepts/rules/udonsharp-language-limits.md") === "concepts/rules/udonsharp-language-limits.md");
   check("省略 .md", docs.resolvePage(paths, "concepts/rules/udonsharp-language-limits") === "concepts/rules/udonsharp-language-limits.md");
+  check("反斜杠归一到正斜杠", docs.resolvePage(paths, "entities\\api\\not-exposed.md") === "entities/api/not-exposed.md");
+  check("前导 ./ 被接受", docs.resolvePage(paths, "./entities/api/not-exposed.md") === "entities/api/not-exposed.md");
+  check("前导 / 视为库根", docs.resolvePage(paths, "/entities/api/not-exposed.md") === "entities/api/not-exposed.md");
+  check("唯一 basename 被接受", docs.resolvePage(paths, "not-exposed.md") === "entities/api/not-exposed.md");
+  check("无法解析返回 null（不抛建议）", docs.resolvePage(paths, "no/such/page.md") === null);
+
+  // The negation: a real install path must NOT be special-cased any more.
   check(
-    "submodule 绝对路径被换算",
+    "绝对安装路径不再被换算",
     docs.resolvePage(
       paths,
       "D:/x/VRChat-Agent-Creator-Library/memoryV5.0.0/LLMWikiExample/LLMWikiPage/entities/api/not-exposed.md",
-    ) === "entities/api/not-exposed.md",
+    ) === null,
+    "agent 不需要知道语料装在哪",
   );
-  check("反斜杠路径被换算", docs.resolvePage(paths, "entities\\api\\not-exposed.md") === "entities/api/not-exposed.md");
-  check("唯一 basename 被换算", docs.resolvePage(paths, "not-exposed.md") === "entities/api/not-exposed.md");
-  check("无法解析返回 null（不抛建议）", docs.resolvePage(paths, "no/such/page.md") === null);
+
+  // And nothing in the module may teach those segments back.
+  const docsSource = fs.readFileSync(path.join(root, "lib", "docs.js"), "utf8");
+  check(
+    "docs.js 不再含语料目录名",
+    !/LLMWikiPage|memoryV5|VRChat-Agent-Creator-Library/.test(docsSource.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !l.trim().startsWith("*")).join("\n")),
+    "语料布局不属于 read/grep 这一层",
+  );
 
   // ── read: official conventions ──────────────────────────────────────────
   const total = read("entities/api/not-exposed.md").split("\n").length;
@@ -71,7 +88,7 @@ async function main() {
   // ── read: corpus missing must say so ───────────────────────────────────
   const noCorpus = docs.readPage(readNothing, paths, "entities/api/not-exposed.md");
   check("无语料时 read 失败", !noCorpus.ok);
-  check("无语料时说明是 checkout 缺失", /corpus checkout is missing/.test(noCorpus.text), noCorpus.text.slice(0, 90));
+  check("无语料时说明是包内 checkout 缺失", /missing its corpus checkout/.test(noCorpus.text), noCorpus.text.slice(0, 90));
 
   // ── grep: official conventions ──────────────────────────────────────────
   const grep = docs.grepPages(paths, read, "PropertyToID", { maxMatches: 20 });
@@ -105,7 +122,7 @@ async function main() {
   check("无语料时 grep 失败", !bareGrep.ok);
   check(
     "无语料时不谎称 No matches found",
-    !/^No matches found$/.test(bareGrep.text) && /corpus checkout is missing/.test(bareGrep.text),
+    !/^No matches found$/.test(bareGrep.text) && /missing its bundled corpus/.test(bareGrep.text),
     bareGrep.text.slice(0, 90),
   );
 

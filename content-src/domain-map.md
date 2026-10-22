@@ -1,6 +1,6 @@
 # VRChat 创作者知识库 · 覆盖范围
 
-上游：`RhineLab-magellan/VRChat-Agent-Creator-Library` v5.0.0（414 页，LLMWikiPage 结构）
+上游：`RhineLab-magellan/VRChat-Agent-Creator-Library` v5.0.0（414 页）。
 本地权威度标记来自每页 frontmatter 的 `confidence` 字段（high / medium / low）。
 
 ## 覆盖域与入口

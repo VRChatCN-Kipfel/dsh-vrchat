@@ -19,10 +19,10 @@ Hybrid?  → OSC / Avatar↔World / 外部集成
 | 1 | 只支持 **BRP（Built-in 渲染管线）**，禁 URP / HDRP / 切换管线 | 项目彻底不可用 |
 | 2 | 引用 `UnityEditor.*` 的脚本必须放在 **父目录名为 `Editor`** 的路径下（或建 asmdef 且 Include Platforms 只勾 Editor）。**根因**：脚本先在编辑器下编译（含 UnityEditor 程序集），再为目标平台重编（不含） | 跨平台构建失败 |
 | 3 | Unity 版本绑定：SDK 3.5.0+ → **2022.3.22f1**（LTS）；SDK 3.4.2 及更早 → 2019.4.31f1 | 版本不兼容 |
-| 4 | 禁 `List<T>` / `Dictionary` / LINQ / lambda / delegate | Udon VM 不支持 |
+| 4 | 禁 `List<T>` / `Dictionary` / LINQ / lambda / delegate。**例外**：`List<ConstraintSource>` 与 `List<KeyValuePair<AnimationClip, AnimationClip>>` 这两个具体类型可用（约束与 AnimatorOverrideController 的形参），但 `List<T>` 的方法整体未暴露 | Udon VM 不支持泛型集合 |
 | 5 | 禁 `async` / `await` / `try`-`catch` / coroutine | Udon VM 不支持 |
-| 6 | 非 Owner 写 `UdonSynced` 变量 | 静默回退 / 数据被覆盖 |
-| 7 | Manual Sync 必须调 `RequestSerialization()`；总带宽只有 **~11 KB/s** | 数据永不发送 / 整体降级 |
+| 6 | 非 Owner 写 `UdonSynced` 变量：写入**静默无效**，不报错也不生效，读到的仍是 Owner 的值 | 逻辑不生效且难以察觉 |
+| 7 | Manual Sync 必须调 `RequestSerialization()`；总带宽约 **11 KB/s（PC）/ 5 KB/s（Quest）** | 数据永不发送 / 整体降级 |
 | 8 | Update / 热路径禁 `GetComponent` / `Find` / 分配内存 / `EXTERN` | 严重性能问题 |
 | 9 | 同步 `String` / `DisplayName` 需特殊处理；Enum 比较必须先 cast 到 `int` | 带宽浪费 / 装箱 GC |
 | 10 | Persistence 必须在 `OnPlayerRestored` 之后读写；Key 不可删除只能 `Set` 覆盖；写 PlayerData = 全量发送 | 数据被覆盖 / 配额打满 |

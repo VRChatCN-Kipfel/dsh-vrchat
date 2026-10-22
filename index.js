@@ -27,6 +27,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
+import { spawn } from "node:child_process";
 import z from "@deepseek-ai/schemastery";
 import { z as zod } from "zod";
 import { defineTool } from "@deepseek-ai/dsh-tools";
@@ -40,6 +41,13 @@ import {
   findPriorQuery,
 } from "./lib/ledger.js";
 import { buildIndex, lookup } from "./lib/api-table.js";
+import {
+  FILTER_FIELDS,
+  validateFilters,
+  filterIndex,
+  facet,
+  describeLibraries,
+} from "./lib/metadata.js";
 import {
   BRIDGE_TEMPLATES,
   classifyProcess,
@@ -109,7 +117,18 @@ const ledgerEntrySchema = zod.object({
 
 const ledgerStateSchema = zod.object({
   version: zod.number(),
-  blockTokens: zod.number(),
+  /**
+   * Token cost of BOTH blocks, always.
+   *
+   * A single `blockTokens` field was a mistake: the projection service registers
+   * one definition per key and DISCARDS the second (it only bumps `refs`), so
+   * whichever instance applied first won and the other's value was lost forever
+   * — with `EntryGroup.update` creating rows concurrently, that winner was not
+   * even stable. Storing both makes the value order-independent: it no longer
+   * depends on which of the two instances happened to run first.
+   */
+  blockTokensLite: zod.number(),
+  blockTokensPreset: zod.number(),
   turn: zod.number(),
   generation: zod.number(),
   queries: zod.array(ledgerEntrySchema),
@@ -120,7 +139,8 @@ const ledgerStateSchema = zod.object({
 });
 
 const ledgerViewSchema = zod.object({
-  blockTokens: zod.number(),
+  blockTokensLite: zod.number(),
+  blockTokensPreset: zod.number(),
   turn: zod.number(),
   digestCalls: zod.number(),
   grepCalls: zod.number(),
@@ -141,7 +161,7 @@ const ledgerViewSchema = zod.object({
  */
 function assertDataPresent() {
   // Only artifacts the bundle still ships. `pages.json` is deliberately absent:
-  // page bodies now live in the workspace checkout and are read lazily, so
+  // page bodies now live in the bundled corpus directory and are read lazily, so
   // requiring it here would fail activation on every fresh install.
   const required = [
     "t0-core.txt",
@@ -196,12 +216,6 @@ function ensureApiIndex() {
 }
 
 /**
- * The corpus is read from the workspace checkout, never from the bundle.
- *
- * Store instances are keyed by corpus root so a second library later means a
- * second entry here rather than a second copy of this module.
- */
-/**
  * One store per installed package. There is no workspace key: the corpus
  * belongs to the bundle, so every session in this process shares it.
  */
@@ -237,11 +251,91 @@ function ensureManifest() {
   return manifest;
 }
 
-/** Copy shown when a session's workspace has no corpus checkout. */
+/**
+ * Run one PowerShell command and return its stdout/stderr/exit code.
+ *
+ * Spawns `pwsh` DIRECTLY instead of going through `ctx.get("shell")`. The shell
+ * service returned an empty process list for a command that the identical argv
+ * produces five processes for here: a silent zero with no error attached, which
+ * the Unity tool then rendered as "no Unity running" while four were up. Every
+ * layer tested fine on its own; only the combination lost data.
+ *
+ * This is acceptable because the only thing it runs is READ-ONLY enumeration —
+ * no writes, no network, no credentials. It is also deliberately NOT a general
+ * shell: the callers pass one fixed command each, never user input.
+ *
+ * @param command - the exact PowerShell text to run.
+ * @param signal - caller cancellation.
+ * @returns `{ stdout, stderr, exitCode, error }`; `error` is set only on failure.
+ */
+function runPwshJson(command, signal) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    let child;
+    try {
+      child = spawn("pwsh", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
+        windowsHide: true,
+      });
+    } catch (error) {
+      finish({ stdout: "", stderr: "", exitCode: null, error: String(error?.message ?? error) });
+      return;
+    }
+
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    // Bound the wait: a hung pwsh must not hang the tool call.
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+      finish({ stdout, stderr, exitCode: null, error: "pwsh 超时（20s）" });
+    }, 20000);
+
+    const onAbort = () => {
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+      finish({ stdout, stderr, exitCode: null, error: "调用已取消" });
+    };
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      signal?.removeEventListener?.("abort", onAbort);
+      finish({ stdout, stderr, exitCode: null, error: String(error?.message ?? error) });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      signal?.removeEventListener?.("abort", onAbort);
+      finish({ stdout, stderr, exitCode: code, error: null });
+    });
+  });
+}
+
+/** Copy shown when THIS INSTALLATION lacks its bundled corpus. */
 const NO_CORPUS_TEXT =
-  "知识库语料不可用：当前工作区没找到 `VRChat-Agent-Creator-Library/` 检出。\n" +
-  "本插件的索引结构随包分发，但 414 页正文来自工作区的那个 submodule——" +
-  "请确认它已 `git submodule update --init`，或在包含它的工作区里提问。\n" +
+  "知识库语料不可用：**本插件的安装里缺少自带的语料目录**（`VRChat-Agent-Creator-Library/`）。\n" +  "语料随插件包一起分发，与你在哪个工作区无关——所以这不是你项目的问题，" +
+  "而是这次安装没有把语料带下来（打包白名单或 submodule 未初始化）。\n" +
+  "处理方式：重装插件；或在本仓库里 `git submodule update --init` 后重新构建安装。\n" +
   "在此之前，注入的红线与人设仍然有效，只是无法检索原文。";
 
 /**
@@ -262,24 +356,37 @@ function apply(ctx, config) {
   const maxPages = Number.isSafeInteger(config?.maxPages) ? config.maxPages : 4;
   const injectSection = tier === "preset" || tier === "full";
 
-  const blockKey = tier === "preset" || tier === "full" ? "always-load" : "t0-core";
-  const block = meta.blocks?.[blockKey];
-  // Provenance comes from the build manifest, never hardcoded in the .md.
-  // Note: `{{variable}}` would be the "proper" channel, but the prompt
-  // interpreter THROWS on an unknown variable or one with no value for an
-  // assembly — a build-static fact is safer as plain substituted text.
+  // The build manifest, not the .md: provenance must describe the artifacts
+  // actually shipped. `{{variable}}` would be the "proper" channel, but the
+  // prompt interpreter THROWS on an unknown variable or one with no value for an
+  // assembly, so a build-static fact is safer as plain substituted text.
   const provenance = [
     `库 v${meta.libraryVersion ?? "?"} / 上游 ${meta.pageCount ?? "?"} 页 / 构建 ${String(meta.builtAt ?? "").slice(0, 10)}`,
-    block === undefined ? "" : `本块 ${block.tokensLow}–${block.tokensHigh} tok`,
-  ]
-    .filter((line) => line.length > 0)
-    .join(" · ");
+    `本块 ${meta.blocks?.["always-load"]?.tokensLow ?? "?"}–${meta.blocks?.["always-load"]?.tokensHigh ?? "?"} tok`,
+  ].join(" · ");
 
-  const baseText = blockKey === "always-load" ? `${data.t0}\n\n---\n\n${data.alwaysLoad}` : data.t0;
-  const sectionText = `${baseText}\n\n> ${provenance}`;
+  /**
+   * The injected section is a SHORT runtime note, not a copy of the red lines.
+   *
+   * It used to re-emit `t0-core + always-load` — which the persona's suffix
+   * already carries verbatim (measured: 99.6% overlap, ~2700–4000 duplicated
+   * tokens on every preset session). Two copies of the same constraints also
+   * risk contradicting each other the moment one side is edited.
+   *
+   * So the red lines live in exactly one place (the preset suffix, order 10200,
+   * the last word in the prompt) and this section carries only what the suffix
+   * cannot: which build is loaded, and where to look when the answer is missing.
+   */
+  const sectionText = [
+    `> VRChat 知识库已挂载（${provenance}）。`,
+    "> 红线与领域事实见下方最终约束集；本段只报状态。",
+    "> 检索用 `vrchat_kb`（概念）/ `vrchat_kb_api`（API 是否暴露）/ `vrchat_kb_grep`+`_read`（定位）/",
+    "> `vrchat_kb_unity`（Unity 运行时）/ `vrchat_kb_scan`（产物违例自查）。" ,
+    "> 库未覆盖的部分直说未覆盖，不要用通用 Unity 知识填补。",
+  ].join("\n");
 
-  // In the preset this section is a supplement behind the persona; standalone it
-  // would be the only injected text, which is why the global row is not shipped.
+  // In the preset this is the status note; the red lines arrive via the persona
+  // suffix. Nothing here duplicates them.
   if (injectSection) {
     ctx.systemPrompt.section({
       name: "vrchat-kb",
@@ -302,7 +409,15 @@ function apply(ctx, config) {
         key: "vrchatKb",
         stateSchema: ledgerStateSchema,
         viewSchema: ledgerViewSchema,
-        init: () => initLedger(block?.tokensHigh ?? 0),
+        // Both costs are seeded from the build manifest, INDEPENDENT of which
+        // tier this instance is: the projection keeps one definition per key, so
+        // a value that depended on the mounted tier would be silently replaced by
+        // whichever instance registered first.
+        init: () =>
+          initLedger({
+            lite: meta.blocks?.["t0-core"]?.tokensHigh ?? 0,
+            preset: meta.blocks?.["always-load"]?.tokensHigh ?? 0,
+          }),
         apply: (state, event) => applyLedger(state, event),
         wire: {
           viewSchema: ledgerViewSchema,
@@ -360,8 +475,10 @@ function apply(ctx, config) {
         const limit =
           Number.isSafeInteger(args?.limit) && args.limit > 0 ? Math.min(args.limit, 12) : maxPages;
 
-        // The corpus belongs to THIS session's workspace. A workspace without the
-        // checkout still gets the injected red lines, but retrieval must say so
+        // The corpus ships INSIDE this package, so a miss means the installation
+        // is incomplete — never that the user opened the wrong folder. Retrieval
+        // must say that plainly instead of returning an empty digest that reads
+        // as "the library has nothing on this".
         // rather than return an empty digest that looks like "the library has
         // nothing on this".
         const store = storeFor();
@@ -450,7 +567,8 @@ function apply(ctx, config) {
         const pattern = typeof args?.pattern === "string" ? args.pattern.trim() : "";
         if (pattern.length === 0) throw new Error("vrchat_kb_grep requires a non-empty pattern");
         const include = typeof args?.include === "string" ? args.include : undefined;
-        // The corpus belongs to THIS session's workspace, not to the bundle.
+        // The corpus ships inside this package (see `CORPUS_ENTRY`), so this is
+        // the same store every session reads — not a per-workspace one.
         const store = storeFor();
         if (store.corpusRoot === null) return { text: NO_CORPUS_TEXT, ok: false, total: 0, matches: [] };
         const result = grepPages(store.index.map((entry) => entry.path), store.bodyOf, pattern, { include });
@@ -463,18 +581,30 @@ function apply(ctx, config) {
     defineTool({
       name: "vrchat_kb_read",
       description:
-        "读取 VRChat 知识库中的单个页面，返回带行号的正文。" +
-        "参数与输出对齐内置 read：file_path / offset / limit，行格式 `N: 内容`，末尾给出续读提示。" +
-        "只接受库内路径（可用 vrchat_kb_grep 取得），不会读写工作区文件。",
+        "读取 VRChat 知识库中的单个页面，返回带行号的正文。参数与输出对齐内置 read：" +
+        "file_path / offset / limit，行格式 `N: 内容`，末尾给出续读提示。\n" +
+        "\n" +
+        "**默认跳过页面开头的 YAML 元数据。** 每页都有 title/tags/related 之类的 frontmatter（最多 35 行），" +
+        "那不是知识正文。不传 offset 时从正文首行开始，并在末尾注明「跳过了第 1–N 行」，" +
+        "要读元数据就显式传 offset=1。\n" +
+        "\n" +
+        "**行号不会因为跳过而漂移：输出的 N 永远是文件里的真实行号**，" +
+        "所以 vrchat_kb_grep 报的 `Line 240` 可以直接用 offset=240 读回同一行。" +
+        "两种取数方式（默认跳元数据 / 显式 offset）共用同一套行号，不需要换算。\n" +
+        "\n" +
+        "路径是库内相对的（可用 vrchat_kb_grep 取得），例如 entities/api/not-exposed.md。" +
+        "语料随插件包分发，装在哪不需要你知道；也不接受绝对路径或安装路径。",
       parameters: {
         file_path: {
           type: "string",
           required: true,
-          description: "库内页面路径，如 entities/api/not-exposed.md（可省略 .md）。",
+          description: "库内页面路径，如 entities/api/not-exposed.md（可省略 .md）。不接受安装路径或绝对路径。",
         },
         offset: {
           type: "number",
-          description: "起始行（1-based），默认 1。",
+          description:
+            "起始行（1-based），引用文件真实行号。**不传则从正文首行开始，自动跳过 YAML 元数据**；" +
+            "传 1 则从文件第 1 行读起（含元数据）。",
         },
         limit: {
           type: "number",
@@ -509,11 +639,30 @@ function apply(ctx, config) {
       async execute(args, exec) {
         const filePath = typeof args?.file_path === "string" ? args.file_path.trim() : "";
         if (filePath.length === 0) throw new Error("vrchat_kb_read requires a non-empty file_path");
-        const offset = Number.isInteger(args?.offset) ? args.offset : 1;
+        // Deliberately NOT defaulting to 1: `readPage` treats an absent offset as
+        // "start at the prose", skipping the YAML metadata every page carries.
+        // Substituting 1 here would silently undo that and hand the model a block
+        // of frontmatter instead of content.
+        const offset = Number.isInteger(args?.offset) ? args.offset : undefined;
         const limit = Number.isInteger(args?.limit) ? args.limit : undefined;
         const store = storeFor();
         if (store.corpusRoot === null) {
-          return { text: NO_CORPUS_TEXT, ok: false, path: undefined, offset, totalLines: undefined, lines: [] };
+          // Every key the success shape declares, with null instead of undefined:
+          // `dsh-tools` rejects a result holding undefined with
+          // INVALID_TOOL_OUTPUT before `render` runs, which would replace this
+          // explanation with an error code. `lines: []` because the schema says
+          // array, and `null` for values that are numbers/strings elsewhere.
+          return {
+            text: NO_CORPUS_TEXT,
+            ok: false,
+            path: null,
+            // Echo the caller's offset only when one was given: reporting "1" for
+            // an omitted offset would contradict the tool's own default, which
+            // starts at the prose rather than at line 1.
+            offset: Number.isInteger(offset) ? offset : null,
+            totalLines: null,
+            lines: [],
+          };
         }
         const result = readPage(store.bodyOf, store.index.map((entry) => entry.path), filePath, offset, limit);
         return {
@@ -664,62 +813,62 @@ function apply(ctx, config) {
         render: (_args, value) => [{ type: "text", text: value.text }],
       },
       async execute(args, exec) {
-        const shell = ctx.get("shell");
-        if (shell === undefined) {
+        // Runs `pwsh` DIRECTLY rather than through the `shell` service.
+        //
+        // The service's round trip returned `{"procs":[],"cli":false}` for a
+        // command that the identical argv produced five processes for when spawned
+        // here — a silent zero, which this tool then reported as "no Unity running"
+        // while four Unity Hub processes were up. Every layer was checked in
+        // isolation and behaved correctly; only the combination lost the data, and
+        // it never produced an error to explain itself.
+        //
+        // Enumerating processes READ-ONLY has no security surface, so bypassing the
+        // executor does not weaken anything. It also removes the two-step
+        // resolve/execute contract whose failure mode was invisible.
+        const script =
+          "$p = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | " +
+          "Where-Object { $_.Name -like 'Unity*' -or $_.Name -like '*mcp*' } | " +
+          "Select-Object ProcessId, Name, ExecutablePath, CommandLine); " +
+          "$cli = [bool](Get-Command unity-mcp-cli -ErrorAction SilentlyContinue); " +
+          "[pscustomobject]@{ procs = $p; cli = $cli } | ConvertTo-Json -Depth 4 -Compress";
+
+        const outcome = await runPwshJson(script, exec.signal);
+        if (outcome.error !== null) {
           return {
             text:
-              "无法探查：本环境没有可用的 shell 服务。\n" +
-              "你可以自己跑 `Get-Process Unity*` / `Get-CimInstance Win32_Process` 来看进程。",
+              `探查失败：${outcome.error}\n` +
+              "这不是你的操作问题——本工具直接执行 pwsh 未能取得进程列表。" +
+              "可以自己跑 `Get-CimInstance Win32_Process` 复核。",
             editors: 0,
             hubs: 0,
             evidence: 0,
           };
         }
-
-        // One invocation gathers process command lines and project-file facts.
-        // Deliberately NO port sweep: an open socket proves nothing, and a port
-        // guessed to be MCP is not evidence. A port is reported only when a
-        // command line names it.
-        // `resolve` then `execute` is the service's two-step contract; awaiting
-        // `result()` is what makes this a foreground run.
-        const script = [
-          "$procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |",
-          "  Where-Object { $_.Name -like 'Unity*' -or $_.Name -like '*mcp*' } |",
-          "  Select-Object ProcessId, Name, ExecutablePath, CommandLine",
-          "$cli = [bool](Get-Command unity-mcp-cli -ErrorAction SilentlyContinue)",
-          "[pscustomobject]@{ procs = @($procs); cli = $cli } | ConvertTo-Json -Depth 4 -Compress",
-        ].join("\n");
-
-        let output;
-        try {
-          const spec = shell.resolve({
-            command: script,
-            timeoutMs: 20000,
-            onExpiry: "kill",
-            signal: exec.signal,
-          });
-          const running = await shell.execute(spec);
-          output = await running.result();
-        } catch (error) {
-          return {
-            text: `探查失败：${String(error?.message ?? error)}`,
-            editors: 0,
-            hubs: 0,
-            evidence: 0,
-          };
-        }
+        const output = { stdout: { text: outcome.stdout }, stderr: { text: outcome.stderr }, exitCode: outcome.exitCode };
 
         let snapshot;
         try {
           snapshot = JSON.parse(String(output.stdout?.text ?? "").trim() || "{}");
         } catch {
           return {
-            text: `探查失败：无法解析 shell 输出。\n${String(output.stderr?.text ?? "").slice(0, 400)}`,
+            text: `探查失败：无法解析 pwsh 输出。\n${String(output.stderr?.text ?? "").slice(0, 400)}`,
             editors: 0,
             hubs: 0,
             evidence: 0,
           };
         }
+
+        // Diagnostics that explain "found nothing" instead of leaving the caller to
+        // guess. A silent zero is the failure mode this tool must never repeat: it
+        // once reported "no Unity processes" while four were running.
+        const diagnostics = {
+          exitCode: output.exitCode,
+          timedOut: output.timedOut,
+          aborted: output.aborted,
+          stdoutChars: String(output.stdout?.text ?? "").length,
+          stderrText: String(output.stderr?.text ?? "").slice(0, 300),
+          rawProcs: Array.isArray(snapshot.procs) ? snapshot.procs.length : typeof snapshot.procs,
+        };
 
         const rawProcs = Array.isArray(snapshot.procs) ? snapshot.procs : snapshot.procs === undefined ? [] : [snapshot.procs];
 
@@ -804,6 +953,7 @@ function apply(ctx, config) {
           projects,
           commandEvidence,
           cliDetected: snapshot.cli === true,
+          diagnostics,
         });
 
         return {
@@ -811,6 +961,161 @@ function apply(ctx, config) {
           editors: processes.filter((p) => p.kind === "editor").length,
           hubs: processes.filter((p) => p.kind === "hub").length,
           evidence: commandEvidence.length + projects.reduce((acc, p) => acc + p.bridgeEvidence.length, 0),
+        };
+      },
+    }),
+  );
+
+  // ── vrchat_kb_filter — query the metadata as a FILTER, not as text ────────
+  // Every page carries ~35 lines of YAML frontmatter that `read` skips as
+  // non-content. Searching those words with grep is noise (`last_review` matches
+  // all 414 pages), but filtering on them is precise: `status: deprecated` is one
+  // page out of 414, a fact no text search can express.
+  ctx.tools.register(
+    defineTool({
+      name: "vrchat_kb_filter",
+      description:
+        "按元数据筛选知识库页面，返回匹配的库内路径与标题（不含正文）。用于「哪些页是 high 可信度」「Quest 相关的 deprecated 页有哪些」" +
+        "这类结构化问题——这类词在每页的 YAML 元数据里，用 grep 搜会命中全部 414 页，只有筛选才有意义。\n" +
+        "\n" +
+        "可筛选字段：type / category / confidence / status / tags / title / path。" +
+        "多个字段之间是 AND；tags 给多个值时要求全部命中。字段名拼错会报错并列出可用字段，不会静默返回全部。\n" +
+        "\n" +
+        "只要 buckets 想看分布（比如「有哪些 category」），把 filters 留空并传 buckets。",
+      parameters: {
+        filters: {
+          type: "object",
+          description:
+            "筛选条件。例：{\"confidence\":\"high\",\"category\":\"world\"}。可用键：" +
+            "type / category / confidence / status / tags（数组）/ title / path。留空=全部。",
+          properties: {
+            type: { type: "string", description: "entity / concept / governance / navigation / summary" },
+            category: { type: "string", description: "world / avatar / api / patterns / platform / rules / hybrid / misc / meta" },
+            confidence: { type: "string", description: "high / medium / low" },
+            status: { type: "string", description: "active / draft / deprecated" },
+            tags: {
+              type: "array",
+              items: { type: "string" },
+              description: "标签数组，要求全部命中，如 [\"sync\",\"performance\"]。",
+            },
+            title: { type: "string", description: "标题子串（大小写不敏感）" },
+            path: { type: "string", description: "库内路径子串，如 entities/api" },
+          },
+          additionalProperties: false,
+        },
+        buckets: {
+          type: "array",
+          items: { type: "string" },
+          description: "可选：额外返回这些字段的取值分布，如 [\"category\",\"confidence\"]。",
+        },
+        limit: { type: "number", description: "最多返回条数，默认 40，上限 200。" },
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            text: { type: "string", required: true },
+            count: { type: "integer", required: true },
+            paths: { type: "array", items: { type: "string" }, required: true },
+          },
+        },
+        render: (_args, value) => [{ type: "text", text: value.text }],
+      },
+      async execute(args) {
+        const store = storeFor();
+        if (store.corpusRoot === null) {
+          return { text: NO_CORPUS_TEXT, count: 0, paths: [] };
+        }
+
+        const filters = args?.filters === undefined ? {} : args.filters;
+        const invalid = validateFilters(filters);
+        if (invalid !== null) {
+          return { text: `筛选条件无效：${invalid}`, count: 0, paths: [] };
+        }
+
+        const matched = filterIndex(store.index, filters);
+        const cap = Number.isSafeInteger(args?.limit) && args.limit > 0 ? Math.min(args.limit, 200) : 40;
+        const shown = matched.slice(0, cap);
+
+        const lines = [];
+        const label = Object.keys(filters).length === 0 ? "全部" : JSON.stringify(filters);
+        lines.push(`筛选 ${label} → ${matched.length} 页${matched.length > shown.length ? `（列出前 ${shown.length}）` : ""}`);
+
+        if (matched.length > 0) {
+          lines.push("");
+          for (const entry of shown) {
+            const bits = [entry.type, entry.category, entry.confidence, entry.status].filter((x) => x !== null && x !== undefined);
+            lines.push(`  ${entry.path}`);
+            lines.push(`    ${entry.title}  [${bits.join(" · ")}]`);
+          }
+          if (matched.length > shown.length) lines.push(`  … 还有 ${matched.length - shown.length} 页`);
+        }
+
+        // Buckets answer "what values exist" without the caller guessing and
+        // getting an empty result from a misspelled enum.
+        const bucketFields = Array.isArray(args?.buckets) ? args.buckets.filter((f) => typeof f === "string") : [];
+        for (const field of bucketFields) {
+          const unknown =
+            !Object.hasOwn(FILTER_FIELDS, field) && !["title", "path"].includes(field) && field !== "tags";
+          if (unknown) {
+            lines.push("");
+            lines.push(`  分布「${field}」：字段不存在。可用：${Object.keys(FILTER_FIELDS).join(", ")}`);
+            continue;
+          }
+          const counts = facet(store.index, field);
+          lines.push("");
+          lines.push(`  分布「${field}」（${counts.length} 种）：`);
+          for (const [value, count] of counts.slice(0, 20)) lines.push(`    ${String(count).padStart(4)}  ${value}`);
+          if (counts.length > 20) lines.push(`    … 还有 ${counts.length - 20} 种`);
+        }
+
+        lines.push("");
+        lines.push("要看正文：把上面的路径交给 `vrchat_kb_read`。");
+
+        return { text: lines.join("\n"), count: matched.length, paths: shown.map((entry) => entry.path) };
+      },
+    }),
+  );
+
+  // ── vrchat_kb_list — what knowledge is loaded, at a glance ───────────────
+  // "Which libraries do I have" is a runtime fact, not a build fact: a second
+  // library would appear here as another line, which is why the description comes
+  // from the store rather than from the shipped manifest.
+  ctx.tools.register(
+    defineTool({
+      name: "vrchat_kb_list",
+      description:
+        "列出当前已加载的知识库及其概况：版本、页数、构建日期、分类与类型分布、可信度分布，" +
+        "并提示有多少 draft / deprecated 页（引用前该先看 status）。" +
+        "不确定「这里有什么可查」时先调它，比直接检索更省。\n" +
+        "\n" +
+        "只报告已加载的库；若本安装缺少自带语料，会明说缺少而不是列空。",
+      parameters: {},
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            text: { type: "string", required: true },
+            libraries: { type: "integer", required: true },
+            pages: { type: "integer", required: true },
+          },
+        },
+        render: (_args, value) => [{ type: "text", text: value.text }],
+      },
+      async execute() {
+        const store = storeFor();
+        const text = describeLibraries({
+          manifest: meta,
+          index: store.index,
+          corpusRoot: store.corpusRoot,
+          dataDir,
+        });
+        return {
+          text,
+          libraries: store.corpusRoot === null ? 0 : 1,
+          pages: store.corpusRoot === null ? 0 : store.index.length,
         };
       },
     }),
@@ -1087,8 +1392,11 @@ function apply(ctx, config) {
             const measured = priceText(sectionText);
             const lines = [
               `VRChat KB · tier=${tier}`,
-              `  注入块：${sectionText.length} 字符 / ${measured ?? "—"} tok（router 实测）`,
-              `  manifest 估算：${block?.tokensLow ?? "?"}–${block?.tokensHigh ?? "?"} tok（CJK/ASCII 分算）`,
+              `  本段（order 640，运行时状态）：${sectionText.length} 字符 / ${measured ?? "—"} tok（router 实测）`,
+              // The red lines arrive through the PRESET's persona suffix, not this
+              // section; report that budget separately so it is not mistaken for
+              // this section's size.
+              `  预设人设注入（prefix + suffix）：${meta.presetPayload?.estimatedTokensLow ?? "?"}–${meta.presetPayload?.estimatedTokensHigh ?? "?"} tok`,
               `  ${provenance}`,
               `  语料：${meta.pageCount} 页，路由 ${data.routes.length} 条，规则 ${ruleInventory().length} 条`,
             ];
@@ -1100,6 +1408,9 @@ function apply(ctx, config) {
               lines.push(
                 `  本会话用量：digest ${ledger.digestCalls} / grep ${ledger.grepCalls} / read ${ledger.readCalls} / scan ${ledger.scanCalls}`,
                 `  已查问题：${ledger.queries.length} 条${ledger.queries.length === 0 ? "" : `，最近「${ledger.queries.at(-1).query}」`}`,
+                // Both tiers are reported: one field could not represent two
+                // mounts, because the projection keeps one definition per key.
+                `  各档位注入量：lite ${ledger.blockTokensLite} tok / preset ${ledger.blockTokensPreset} tok`,
               );
             }
 

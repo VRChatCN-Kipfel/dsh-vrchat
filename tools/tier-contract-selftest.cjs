@@ -62,14 +62,18 @@ runBroken(
   /缺省 tier 是 tools-only/,
 );
 
-// ── break 3: the two conditions desynchronize ─────────────────────────────
+// ── break 3: the duplication returns ──────────────────────────────────────
+//
+// The section was reduced to a short status note precisely because it used to
+// re-emit the blocks the suffix already carries. Re-introducing the inline copy
+// is the regression that matters now, so prove the check catches it.
 runBroken(
-  "blockKey 与 injectSection 脱钩",
+  "把注入块内联回 section",
   realIndex.replace(
-    'const blockKey = tier === "preset" || tier === "full" ? "always-load" : "t0-core";',
-    'const blockKey = tier === "preset" ? "always-load" : "t0-core";',
+    'const sectionText = [',
+    'const baseText = `${data.t0}\\n\\n---\\n\\n${data.alwaysLoad}`;\n  const sectionText = [ baseText,',
   ),
-  /blockKey 与 injectSection 用同一条件/,
+  /section 不再按 blockKey 复制注入块|section 不内联 t0 或 always-load/,
 );
 
 // The real tree must be intact.
