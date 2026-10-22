@@ -5,16 +5,12 @@ const { createRequire } = require("node:module");
 
 const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
 const YAML = requireFromProfile("yaml");
+const { installedPatch, locateRows } = require("./lib-patch-rows.cjs");
 
 const generationsLib = require("./lib-generation.cjs");
 
 const target = generationsLib.newestGeneration("dsh-vrchat-kb+");
-const patch = YAML.parse(
-  fs.readFileSync(
-    path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat-kb", "cordis.patch.yml"),
-    "utf8",
-  ),
-);
+const patch = installedPatch(path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat-kb"));
 
 const CJK = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/;
 const price = (text) => {
@@ -27,7 +23,12 @@ const price = (text) => {
   return { low: Math.round(cjk / 1.6 + ascii / 4), high: Math.round(cjk / 1 + ascii / 3) };
 };
 
-const persona = patch[0].insert[0].config.plugins.find((plugin) => plugin.id === "persona");
+// Locate the preset by identity: `insert[0]` is the always-on row, not the preset.
+const persona = locateRows(patch).persona;
+if (persona === undefined) {
+  console.error("找不到 persona 行——补丁结构变了，无法报价");
+  process.exit(1);
+}
 console.log(`代: ${target}`);
 let low = 0;
 let high = 0;

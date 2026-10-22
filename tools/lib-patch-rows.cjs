@@ -23,10 +23,21 @@ function installedPackageDir() {
   };
 }
 
+/** Parse YAML with the application tag the patch actually uses. */
+function parsePatchText(text) {
+  // `!!js` is a Loader tag, not a standard one. Parsing without it still yields the
+  // expression as a plain string — which is what every caller here wants — but yaml
+  // emits an "Unresolved tag" warning per occurrence. Four warnings above a PASS
+  // list teach the reader to skim the output, and skimming is how the fifth, real
+  // warning gets missed.
+  const jsTag = { tag: "tag:yaml.org,2002:js", resolve: (value) => value, identify: () => false };
+  return YAML.parse(text, { customTags: [jsTag] });
+}
+
 /** Parse the installed patch, or throw with a usable message. */
 function installedPatch(pkgDir) {
   const file = path.join(pkgDir, "cordis.patch.yml");
-  return YAML.parse(fs.readFileSync(file, "utf8"));
+  return parsePatchText(fs.readFileSync(file, "utf8"));
 }
 
 /**
@@ -48,4 +59,9 @@ function locateRows(patch) {
   };
 }
 
-module.exports = { installedPackageDir, installedPatch, locateRows };
+/** Parse the working tree's own patch, with the same tag handling. */
+function workingPatch() {
+  return parsePatchText(fs.readFileSync(path.join(__dirname, "..", "cordis.patch.yml"), "utf8"));
+}
+
+module.exports = { installedPackageDir, installedPatch, workingPatch, locateRows };

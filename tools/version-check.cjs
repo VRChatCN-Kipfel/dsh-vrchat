@@ -19,6 +19,7 @@ const { createRequire } = require("node:module");
 
 const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
 const YAML = requireFromProfile("yaml");
+const { workingPatch, locateRows } = require("./lib-patch-rows.cjs");
 
 const ROOT = path.join(__dirname, "..");
 const CORPUS = path.join(
@@ -39,8 +40,17 @@ for (const match of fact.matchAll(/Unity\s+(\d{4}\.\d+\.\d+f\d+)/g)) bound.add(m
 check("从 FACT.md 读到绑定版本", bound.size >= 1, [...bound].join(", ") || "none");
 
 // Every version the persona mentions must be one of them.
-const patch = YAML.parse(fs.readFileSync(path.join(ROOT, "cordis.patch.yml"), "utf8"));
-const persona = patch[0].insert[0].config.plugins.find((plugin) => plugin.id === "persona");
+//
+// `insert[0]` is NOT the preset — it is the always-on `vrchat-kb` row. That
+// positional read threw a TypeError and took this whole check offline the moment
+// the two-row patch shipped: a guard that cannot run is worse than no guard,
+// because the suite still reports green for everything else.
+const patch = workingPatch();
+const persona = locateRows(patch).persona;
+if (persona === undefined) {
+  console.error("找不到 persona 行——补丁结构变了，本检查无法判断版本绑定");
+  process.exit(1);
+}
 const texts = {
   prefix: persona?.config?.prefix ?? "",
   suffix: persona?.config?.suffix ?? "",

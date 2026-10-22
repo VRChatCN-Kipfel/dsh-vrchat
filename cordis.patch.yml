@@ -660,6 +660,8 @@
             name: "@deepseek-ai/dsh-skill-filesystem"
           - id: tool-skill
             name: "@deepseek-ai/dsh-tool-skill"
+            config:
+              catalogDescriptionMaxLength: 1024
           - id: command-goal
             name: "@deepseek-ai/dsh-command-goal"
           - id: tool-goal
@@ -779,3 +781,4 @@
               providerName: vrchat-skills
               customSkillDirs:
                 - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))
+                - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-editor-skill/', baseUrl))

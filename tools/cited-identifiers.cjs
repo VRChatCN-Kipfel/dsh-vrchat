@@ -13,10 +13,16 @@ const { createRequire } = require("node:module");
 
 const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
 const YAML = requireFromProfile("yaml");
+const { workingPatch, locateRows } = require("./lib-patch-rows.cjs");
 
 const root = path.join(__dirname, "..");
-const patch = YAML.parse(fs.readFileSync(path.join(root, "cordis.patch.yml"), "utf8"));
-const persona = patch[0].insert[0].config.plugins.find((plugin) => plugin.id === "persona");
+const patch = workingPatch();
+// Locate the preset by identity: `insert[0]` is the always-on row, not the preset.
+const persona = locateRows(patch).persona;
+if (persona === undefined) {
+  console.error("找不到 persona 行——补丁结构变了，本检查无法核对标识符");
+  process.exit(1);
+}
 const personaText = `${persona?.config?.prefix ?? ""}\n${persona?.config?.suffix ?? ""}`;
 
 // The corpus now lives in the workspace checkout, so read it there rather than

@@ -26,6 +26,34 @@ agent 不需要知道 `entities/world/udon/persistence/index.md` 存在，只需
 
 `full` 是 `preset` 的兼容别名（行为完全相同），新配置不要再写 `full`。
 
+## 技能（两套，同为 submodule，原样引入不改上游）
+
+预设在挂载知识库之外，还通过 `skill-filesystem` 挂两套技能。二者职责**不重叠**，这也是它们能共存的前提：
+
+| 根 | 内容 | 管什么 |
+|---|---|---|
+| `vendor/vrchat-world-codex-skills/` | 入口 `vrchat-world` + 3 个子技能 | **World / Udon** 的设计—实施—核验流程 |
+| `vendor/vrchat-editor-skill/` | 单个技能 `inspect-vrchat-avatar-project` | **Avatar** 的检查/诊断/审计流程 + 三份 provider 手册 |
+
+**分工：知识库管事实，技能管流程。** 参数是多少、API 是否暴露、组件语义 —— 查库；
+「改这个之前先建什么责任矩阵、按什么顺序查、过哪张验收表」 —— 走技能。
+语料里的 `entities/avatar/avatar-audit-methodology.md` 是编辑器技能的中文本地化压缩版，
+只作速查；两者冲突以技能为准（这条写进了 order 640 的注入段）。
+
+两套技能都由 `cordis.patch.yml` 里 `vrchat-skills` 的 `customSkillDirs` 以 `!!js` 表达式在
+**运行时**解析（`new URL(..., baseUrl)`），不硬编码任何安装路径。
+
+**描述上限调到 1024。** catalogue 每行是 `- \`name\`: description`，默认截断在 500 字符，
+而这一行是模型**唯一**的路由依据。编辑器技能的描述是 795 字符，最后一句正是
+「Do not use for VRChat World or Udon projects」—— 在 500 处刚好被砍掉，于是它会去抢 World 请求。
+修法是调 `tool-skill` 的 `catalogDescriptionMaxLength`（**只在本预设的实例上**，不影响标准模式），
+**不是**去改上游文件。顺带也修好了 4 个被同样截断的用户技能。
+
+> 技能里的「必须 Unity MCP」是**标注义务，不是安装义务**：没连上编辑器就照常做静态取证，
+> 但结论必须标 `STATIC_SOURCE` / `MCP_REQUIRED` / `BLOCKED`，不许升格、不许写 `PASS`。
+> 装不装桥、走 CLI 还是 batch-mode 由使用者按条件决定。直到 0.29.0 预设里**没有** `mcp-client` 行 —
+> 里面的 Unity 能力是 `vrchat_kb_unity`（只读进程/许可证探测）+ shell/fs，不是编辑器工具。
+
 ## 数据
 
 两类东西，归属不同：

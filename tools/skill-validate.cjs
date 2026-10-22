@@ -88,10 +88,23 @@ async function main() {
     }
 
     // description — routing depends on it, so length matters in both directions.
+    //
+    // The upper bound is 1200, not the catalogue's 1024: this validator checks the
+    // SKILL FILE, not one particular catalogue's budget. A description longer than
+    // the budget still loads correctly (the catalogue truncates only its own line),
+    // so a file is not invalid just because our preset would shorten it. Making the
+    // budget the hard limit here would reject the upstream file we deliberately
+    // ship verbatim. `skill-catalog-check.cjs` is what enforces the budget.
     const desc = meta.description ?? "";
     check(`${rel} 有 description`, desc.length > 0);
     check(`${rel} description 长度适合路由`, desc.length >= 60 && desc.length <= 1200, `${desc.length} 字符`);
-    check(`${rel} description 说明了何时用`, /use when|使用|适用/i.test(desc), desc.slice(0, 80));
+    // "Use only for … when …" is the upstream editor skill's phrasing: a trigger
+    // statement, but not the literal "use when" token.
+    check(
+      `${rel} description 说明了何时用`,
+      /use (only )?for .*? when|use when|使用|适用/i.test(desc),
+      desc.slice(0, 80),
+    );
 
     // body — content is what the model reads after loading.
     const bodyStart = text.indexOf("\n---", 3) + 4;

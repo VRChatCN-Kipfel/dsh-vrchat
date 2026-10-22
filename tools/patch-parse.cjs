@@ -126,11 +126,16 @@ for (const groupId of ["planning", "compaction", "delegation"]) {
 const skillsRow = preset?.config?.plugins?.find((plugin) => plugin.id === "vrchat-skills");
 check("预设内有技能提供者", skillsRow !== undefined, String(skillsRow?.id));
 check("技能提供者用 skill-filesystem", skillsRow?.name === "@deepseek-ai/dsh-skill-filesystem", skillsRow?.name);
-check(
-  "技能目录指向 vendor 子模块",
-  /vendor\/vrchat-world-codex-skills/.test(JSON.stringify(skillsRow?.config ?? {})),
-  JSON.stringify(skillsRow?.config ?? {}).slice(0, 120),
-);
+// Both vendored roots must be listed. A provider that finds only one of them still
+// mounts cleanly and still renders a catalogue — it just quietly lacks half the
+// skills, which reads as "the new skill was ignored" rather than as a config error.
+for (const rootDir of ["vendor/vrchat-world-codex-skills", "vendor/vrchat-editor-skill"]) {
+  check(
+    `技能目录含 ${rootDir}`,
+    JSON.stringify(skillsRow?.config ?? {}).includes(rootDir),
+    JSON.stringify(skillsRow?.config ?? {}).slice(0, 160),
+  );
+}
 check(
   "技能目录用 !!js 在运行时解析（不硬编码绝对路径）",
   /!!js|process\.getBuiltinModule/.test(JSON.stringify(skillsRow?.config ?? {})),
@@ -152,6 +157,21 @@ check(
   "提供者与读取通道成对出现",
   skillsRow !== undefined && readerRow !== undefined,
   "只有 skills 的提供者，没有 skills 的读取工具",
+);
+
+// The reader's per-description budget must cover the longest vendored description.
+//
+// The catalogue line is the entire routing signal, and the editor skill only states
+// its World/Udon exclusion at character 795 of 795. At the default 500 that sentence
+// is cut, so the skill competes with the four World skills for World requests. The
+// budget is raised in THIS preset only, so the check lives here rather than in a
+// global config assertion.
+const budget = readerRow?.config?.catalogDescriptionMaxLength;
+check("读取通道显式提高描述上限", typeof budget === "number" && budget > 500, String(budget));
+check(
+  "描述上限覆盖 795 字符的编辑器技能",
+  typeof budget === "number" && budget >= 795,
+  `${budget} / 795`,
 );
 
 // The tier must gate injection, so the two configs cannot be identical.

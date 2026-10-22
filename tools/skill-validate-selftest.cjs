@@ -115,13 +115,20 @@ async function main() {
 
   fs.rmSync(temp, { recursive: true, force: true });
 
-  // The real skill must still pass, so a broken validator cannot hide behind it.
-  const real = spawnSync(
-    process.execPath,
-    [VALIDATOR, path.join(ROOT, "vendor", "vrchat-world-codex-skills")],
-    { cwd: ROOT, encoding: "utf8" },
-  );
-  check("真实技能仍然通过", real.status === 0, (real.stdout ?? "").trim().split("\n").at(-1));
+  // The real skills must still pass, so a broken validator cannot hide behind them.
+  //
+  // BOTH vendored roots are checked. A validator that rejects the upstream editor
+  // skill would silently make us maintain a fork of it, which is exactly the outcome
+  // this design avoids — so the second root is part of the validator's contract.
+  const realRoots = [
+    path.join(ROOT, "vendor", "vrchat-world-codex-skills"),
+    path.join(ROOT, "vendor", "vrchat-editor-skill"),
+  ];
+  for (const realRoot of realRoots) {
+    const label = path.relative(ROOT, realRoot);
+    const real = spawnSync(process.execPath, [VALIDATOR, realRoot], { cwd: ROOT, encoding: "utf8" });
+    check(`${label} 仍然通过`, real.status === 0, (real.stdout ?? "").trim().split("\n").at(-1));
+  }
 
   let failed = 0;
   for (const item of checks) {

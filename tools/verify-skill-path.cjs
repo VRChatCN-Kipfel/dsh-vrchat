@@ -1,10 +1,12 @@
 /**
- * Verify the `!!js` path expression resolves to a directory that really holds
- * the skills, from the INSTALLED package's location.
+ * Verify each `!!js` path expression resolves to a directory that really holds
+ * skills, from the INSTALLED package's location.
  *
- * The patch uses `new URL('vendor/vrchat-world-codex-skills/', baseUrl)`, where
- * `baseUrl` is the patch file's own location. Getting that base wrong is silent:
- * the provider simply finds no skills and the catalog comes up empty.
+ * The patch uses `new URL('vendor/<dir>/', baseUrl)`, where `baseUrl` is the patch
+ * file's own location. Getting that base wrong is silent: the provider simply finds
+ * no skills and the catalog comes up empty. Adding a second skill root doubles the
+ * number of ways this can go wrong without adding any signal, so both roots are
+ * resolved and their contents asserted here.
  *
  * Usage: node tools/verify-skill-path.cjs
  */
@@ -12,6 +14,43 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL, fileURLToPath } = require("node:url");
 const generationsLib = require("./lib-generation.cjs");
+
+/**
+ * Each vendored skill root, plus the resources its entry file points at.
+ *
+ * The `expected` lists are not inventories — they are the files the entry SKILL.md
+ * actually cites. A root that resolves but has lost its references still loads and
+ * still advertises itself in the catalogue; only the follow-up read fails, later,
+ * in a different turn. Checking them here keeps that failure at build time.
+ */
+const ROOTS = [
+  {
+    dir: "vendor/vrchat-world-codex-skills",
+    expected: [
+      "SKILL.md",
+      "build-vrchat-world/SKILL.md",
+      "design-modular-vrchat-world/SKILL.md",
+      "coordinate-transform-audit/SKILL.md",
+      "build-vrchat-world/references/unity-mcp-workflow.md",
+      "design-modular-vrchat-world/references/module-model.md",
+      "docs/RECOMMENDED_OPEN_SOURCE_SKILLS.md",
+    ],
+  },
+  {
+    dir: "vendor/vrchat-editor-skill",
+    expected: [
+      "SKILL.md",
+      "references/toolchain-selection.md",
+      "references/avatar-feature-routing.md",
+      "references/audit-documentation-workflow.md",
+      "references/evidence-and-authorization.md",
+      "references/faceemo-playbook.md",
+      "references/lilycal-inventory-playbook.md",
+      "references/modular-avatar-playbook.md",
+      "LICENSE",
+    ],
+  },
+];
 
 async function main() {
   const checks = [];
@@ -33,46 +72,46 @@ async function main() {
   check("已安装 patch 存在", fs.existsSync(patchFile));
 
   const baseUrl = pathToFileURL(patchFile);
-  const resolved = fileURLToPath(new URL("vendor/vrchat-world-codex-skills/", baseUrl));
-  console.log(`\nbaseUrl:  ${baseUrl.href}`);
-  console.log(`解析结果: ${resolved}\n`);
+  console.log(`\nbaseUrl:  ${baseUrl.href}\n`);
 
-  check("解析出的目录存在", fs.existsSync(resolved), resolved);
+  for (const root of ROOTS) {
+    console.log(`--- ${root.dir}`);
+    const resolved = fileURLToPath(new URL(`${root.dir}/`, baseUrl));
+    console.log(`    解析结果: ${resolved}`);
+    check(`[${root.dir}] 解析出的目录存在`, fs.existsSync(resolved), resolved);
 
-  // ── 2. that directory must actually be a skill ─────────────────────────
-  const skillFile = path.join(resolved, "SKILL.md");
-  check("目录内有 SKILL.md", fs.existsSync(skillFile), skillFile);
-  if (fs.existsSync(skillFile)) {
-    const text = fs.readFileSync(skillFile, "utf8").replace(/\r\n/g, "\n");
-    check("SKILL.md 有 frontmatter", text.startsWith("---\n"));
-    const nameMatch = /^name:\s*(.+)$/m.exec(text);
-    const descMatch = /^description:\s*(.+)$/m.exec(text);
-    check("SKILL.md 有 name", nameMatch !== null, nameMatch?.[1] ?? "");
-    check("SKILL.md 有 description", descMatch !== null, (descMatch?.[1] ?? "").slice(0, 60));
-    console.log(`技能名: ${nameMatch?.[1] ?? "(缺)"}`);
+    // ── 2. that directory must actually be a skill ─────────────────────
+    const skillFile = path.join(resolved, "SKILL.md");
+    check(`[${root.dir}] 目录内有 SKILL.md`, fs.existsSync(skillFile), skillFile);
+    if (fs.existsSync(skillFile)) {
+      // CRLF is normal here: git checks submodule files out with the host's
+      // endings, so a literal `startsWith("---\n")` reports "no frontmatter"
+      // for a perfectly valid file.
+      const text = fs.readFileSync(skillFile, "utf8").replace(/\r\n/g, "\n");
+      check(`[${root.dir}] SKILL.md 有 frontmatter`, text.startsWith("---\n"));
+      const nameMatch = /^name:\s*(.+)$/m.exec(text);
+      const descMatch = /^description:\s*(.+)$/m.exec(text);
+      check(`[${root.dir}] SKILL.md 有 name`, nameMatch !== null, nameMatch?.[1] ?? "");
+      check(`[${root.dir}] SKILL.md 有 description`, descMatch !== null, (descMatch?.[1] ?? "").slice(0, 60));
+      console.log(`    技能名: ${nameMatch?.[1] ?? "(缺)"}`);
+    }
+
+    // ── 3. the resources the entry skill points at must be there ───────
+    for (const rel of root.expected) {
+      check(`[${root.dir}] 资源存在：${rel}`, fs.existsSync(path.join(resolved, ...rel.split("/"))));
+    }
   }
 
-  // ── 3. the resources the entry skill points at must be there ───────────
-  const expected = [
-    "build-vrchat-world/SKILL.md",
-    "design-modular-vrchat-world/SKILL.md",
-    "coordinate-transform-audit/SKILL.md",
-    "build-vrchat-world/references/unity-mcp-workflow.md",
-    "design-modular-vrchat-world/references/module-model.md",
-    "docs/RECOMMENDED_OPEN_SOURCE_SKILLS.md",
-  ];
-  for (const rel of expected) {
-    check(`资源存在：${rel}`, fs.existsSync(path.join(resolved, ...rel.split("/"))));
-  }
-
-  // ── 4. package.json must ship it ──────────────────────────────────────
+  // ── 4. package.json must ship both roots ───────────────────────────────
   const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
   const files = pkg.files ?? [];
-  check(
-    "files 白名单含 vendor 技能目录",
-    files.some((entry) => entry === "vendor/vrchat-world-codex-skills" || entry === "vendor"),
-    files.join(", "),
-  );
+  for (const root of ROOTS) {
+    check(
+      `files 白名单含 ${root.dir}`,
+      files.some((entry) => entry === root.dir || entry === "vendor"),
+      files.join(", "),
+    );
+  }
 
   report();
 

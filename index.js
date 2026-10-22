@@ -384,6 +384,16 @@ function apply(ctx, config) {
     "> 检索用 `vrchat_kb`（概念）/ `vrchat_kb_api`（API 是否暴露）/ `vrchat_kb_grep`+`_read`（定位）/",
     "> `vrchat_kb_unity`（Unity 运行时）/ `vrchat_kb_scan`（产物违例自查）。" ,
     "> 库未覆盖的部分直说未覆盖，不要用通用 Unity 知识填补。",
+    "",
+    "> **事实与流程分开取。** 领域事实（参数多少、API 是否暴露、组件语义）查知识库；",
+    "> 工作流程（Avatar 的检查 / 诊断 / 审计 / 文档维护，含 FaceEmo、lilycalInventory、",
+    "> Modular Avatar 的 provider 手册与验收矩阵）走 `inspect-vrchat-avatar-project` 技能。",
+    "> `avatar-audit-methodology` 是那套流程的中文本地化压缩版，只作速查——两者冲突时以技能为准。",
+    "",
+    "> **技能里的\"必须 Unity MCP\"是标注义务，不是安装义务。** 未连上编辑器时照常做静态取证，",
+    "> 但每条结论必须如实标 `STATIC_SOURCE`，Editor 相关的一律标 `MCP_REQUIRED` / `BLOCKED`，",
+    "> 不许升格、不许写 `PASS`。装不装桥、走 CLI 还是 batch-mode，由你和用户按当时的条件决定；",
+    "> 技能文本禁止的只是「拿离线执行的结果冒充编辑器状态」这件事本身。",
   ].join("\n");
 
   // In the preset this is the status note; the red lines arrive via the persona

@@ -14,7 +14,8 @@ console.log(`代: ${target}`);
 
 const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
 const YAML = requireFromProfile("yaml");
-const patch = YAML.parse(fs.readFileSync(path.join(pkgRoot, "cordis.patch.yml"), "utf8"));
+const { installedPatch, locateRows } = require("./lib-patch-rows.cjs");
+const patch = installedPatch(pkgRoot);
 
 const checks = [];
 const check = (name, ok, detail) => checks.push({ name, ok, detail });
@@ -35,7 +36,25 @@ check("常驻行不携带 persona 配置", alwaysOn?.config?.prefix === undefine
 const preset = rows.find((entry) => entry.id === "preset-vrchat");
 check("预设存在", preset !== undefined);
 check("预设 id = vrchat", preset?.config?.id === "vrchat");
-check("预设含两个插件", (preset?.config?.plugins?.length ?? 0) === 2, String(preset?.config?.plugins?.length));
+// The preset inherits nothing, so it must declare the FULL agent on its own. The
+// old assertion here was `plugins.length === 2`, written when the preset carried
+// only persona + kb; it kept passing after the preset was cut down to four rows and
+// then started failing at 21 once the full standard capability set was restored.
+// Counting rows is not the property we care about — coverage is. Assert that the
+// capability groups a session needs are actually present.
+const presetPlugins = preset?.config?.plugins ?? [];
+const pluginsById = new Map(presetPlugins.map((plugin) => [plugin.id, plugin]));
+check("预设插件行数不少于标准 agent", presetPlugins.length >= 19, `${presetPlugins.length} 行`);
+for (const id of ["persona", "vrchat-kb-preset", "vrchat-skills", "tool-skill", "skill-filesystem", "tool-fs", "tool-pwsh", "tool-bash", "tool-todo"]) {
+  check(`预设含 ${id}`, pluginsById.has(id), [...pluginsById.keys()].join(", ").slice(0, 120));
+}
+// Exactly one platform-gated shell may be active, or the session has no shell at all
+// on this platform (both disabled) or two competing ones.
+const bash = pluginsById.get("tool-bash");
+const pwsh = pluginsById.get("tool-pwsh");
+check("bash/pwsh 至少一行存在", bash !== undefined || pwsh !== undefined);
+check("bash 在 Windows 上被禁用", /=== *'win32'/.test(String(bash?.disabled)), String(bash?.disabled));
+check("pwsh 在非 Windows 上被禁用", /!== *'win32'/.test(String(pwsh?.disabled)), String(pwsh?.disabled));
 
 const presetKb = preset?.config?.plugins?.find((plugin) => plugin.name === "dsh-vrchat-kb");
 check("预设内挂载了知识库插件", presetKb !== undefined);

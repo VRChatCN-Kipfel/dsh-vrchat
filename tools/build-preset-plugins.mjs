@@ -24,12 +24,110 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join, dirname, resolve } from "node:path";
 
-const HOST_PRESETS = join(
-  "D:\\Program Files\\DSH Desktop\\resources\\app.asar.unpacked\\node_modules\\@deepseek-ai\\dsh-web-app\\presets",
-);
-const STANDARD = join(HOST_PRESETS, "standard.patch.yml");
+/**
+ * Locate the shipped `standard.patch.yml` without hardcoding an install path.
+ *
+ * A literal `D:\\Program Files\\DSH Desktop\\...` is the same mistake as hardcoding
+ * the corpus path: correct here, wrong on every other machine, and it fails with a
+ * bare ENOENT that says nothing about where it looked.
+ *
+ * The running desktop shell is the most reliable anchor: `DSH Desktop.exe` sits at
+ * `<install>`, and the Host packages are under
+ * `<install>/resources/app.asar.unpacked/node_modules/@deepseek-ai/`. A plain
+ * `dsh` CLI install, or a build run on a machine with no shell running, still falls
+ * through to a search of every plausible root.
+ *
+ * @returns the absolute path of the preset file.
+ * @throws with every path tried, because "not found" alone is not actionable.
+ */
+function findStandardPatch() {
+  const relative = join(
+    "resources",
+    "app.asar.unpacked",
+    "node_modules",
+    "@deepseek-ai",
+    "dsh-web-app",
+    "presets",
+    "standard.patch.yml",
+  );
+
+  const tried = [];
+  const addCandidate = (root, why) => {
+    const full = resolve(join(root, relative));
+    tried.push({ full, why });
+    return existsSync(full) ? full : null;
+  };
+
+  // 1. The running desktop shell's own directory. On Windows the process image
+  //    sits at the install root; `tasklist`-free derivation avoids a hardcoded path.
+  for (const imageName of ["DSH Desktop", "DSH Desktop.exe"]) {
+    try {
+      const out = execFileSync(
+        process.platform === "win32" ? "powershell" : "sh",
+        process.platform === "win32"
+          ? ["-NoProfile", "-Command", `(Get-Process -Name 'DSH Desktop' -ErrorAction SilentlyContinue | Select-Object -First 1).Path`]
+          : ["-c", "command -v dsh-desktop || true"],
+        { encoding: "utf8", timeout: 8000 },
+      ).trim();
+      if (out.length === 0) continue;
+      const hit = addCandidate(dirname(out), `运行中的 ${imageName}`);
+      if (hit !== null) return hit;
+      break;
+    } catch {
+      /* fall through to the next anchor */
+    }
+  }
+
+  // 2. `DSH_HOME` is always set by the harness; the generation directories carry the
+  //    Host packages but nest them one level deeper than the desktop layout.
+  if (process.env.DSH_HOME !== undefined) {
+    const hit = addCandidate(join(process.env.DSH_HOME, "profiles"), "DSH_HOME/profiles");
+    if (hit !== null) return hit;
+    // The app.asar layout, rooted at `..` of the harness home's parent.
+    const unpacked = join(
+      process.env.DSH_HOME,
+      "..",
+      "..",
+      "resources",
+      "app.asar.unpacked",
+      "node_modules",
+      "@deepseek-ai",
+      "dsh-web-app",
+      "presets",
+      "standard.patch.yml",
+    );
+    tried.push({ full: resolve(unpacked), why: "DSH_HOME 向上两级的安装根" });
+    if (existsSync(unpacked)) return resolve(unpacked);
+  }
+
+  // 3. A profile that happens to ship dsh-web-app as a dependency.
+  if (process.env.DSH_PROFILE_DIR !== undefined) {
+    const direct = join(
+      process.env.DSH_PROFILE_DIR,
+      "node_modules",
+      "@deepseek-ai",
+      "dsh-web-app",
+      "presets",
+      "standard.patch.yml",
+    );
+    tried.push({ full: direct, why: "profile node_modules" });
+    if (existsSync(direct)) return direct;
+  }
+
+  throw new Error(
+    `找不到 dsh 自带的 standard.patch.yml，试过：\n` +
+      tried.map((item) => `  · ${item.why}\n    ${item.full}`).join("\n") +
+      "\n\n没有它就无法知道「标准 agent 挂了哪些插件」，预设会退回少数几行——" +
+      "会话将缺少文件、命令与技能工具，而界面看起来完全正常。",
+  );
+}
+
+const STANDARD = findStandardPatch();
+console.log(`standard 预设: ${STANDARD}`);
 
 const requireFromProfile = createRequire(join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
 const YAML = requireFromProfile("yaml");
@@ -110,15 +208,48 @@ plugins.push({
   name: "@deepseek-ai/dsh-skill-filesystem",
   config: {
     providerName: "vrchat-skills",
-    customSkillDirs: [{ __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))" }],
+    customSkillDirs: [
+      { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))" },
+      { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-editor-skill/', baseUrl))" },
+    ],
   },
 });
+
+// ── 2b. Raise the catalogue's per-description budget in THIS preset only.
+//
+// The reader truncates every description at `catalogDescriptionMaxLength`
+// (default 500) when it renders the `- \`name\`: description` lines, and the
+// catalogue line is the ENTIRE routing signal — the body is only read after the
+// model picks the skill. A description longer than the budget therefore loses its
+// tail silently, and the tail is exactly where a skill states its exclusions.
+//
+// The vendored editor skill measures 795 characters and its last sentence is
+// "Do not use for VRChat World or Udon projects" — without it the skill competes
+// with the four World skills for every World request. Rewriting the upstream file
+// would fork the submodule; raising the budget keeps the repository verbatim.
+//
+// 1024 rather than 795: it leaves room for the upstream skill to grow, and the
+// four user-installed skills that currently get cut (ci-watch 522, excel-cli 519,
+// dynamic-archify 804, vue-bits 818) fit too. The row lives inside
+// `preset-vrchat`, not the global row, so no other session pays for it.
+const catalogueReader = plugins.find((plugin) => plugin.id === "tool-skill");
+if (catalogueReader === undefined) throw new Error("standard 预设里没有 tool-skill 行");
+catalogueReader.config = { ...(catalogueReader.config ?? {}), catalogDescriptionMaxLength: 1024 };
+console.log("tool-skill 的 catalogDescriptionMaxLength → 1024（仅本预设）");
 
 // ── 3. State the two things a later reader must not silently drop.
 const hasReader = plugins.some((plugin) => plugin.id === "tool-skill");
 const hasProvider = plugins.some((plugin) => plugin.id === "vrchat-skills");
 if (!hasReader || !hasProvider) {
   throw new Error(`技能通道不成对：provider=${hasProvider} reader=${hasReader}`);
+}
+
+// Both skill roots must survive as `!!js`, or the provider finds nothing and the
+// catalogue comes up empty with no error. Counting entries is the cheap check.
+const skillDirs = plugins.find((plugin) => plugin.id === "vrchat-skills")?.config?.customSkillDirs ?? [];
+const jsDirs = skillDirs.filter((entry) => entry !== null && typeof entry === "object" && typeof entry.__JS__ === "string");
+if (jsDirs.length !== 2) {
+  throw new Error(`技能目录应有 2 个 !!js 表达式，实际 ${jsDirs.length}`);
 }
 
 console.log(`最终插件行数: ${plugins.length}`);

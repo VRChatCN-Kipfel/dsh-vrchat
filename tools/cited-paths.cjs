@@ -14,15 +14,21 @@ const { createRequire } = require("node:module");
 
 const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
 const YAML = requireFromProfile("yaml");
+const { workingPatch, locateRows } = require("./lib-patch-rows.cjs");
 
 const root = path.join(__dirname, "..");
 // The index carries every page path; bodies live in the workspace checkout now,
 // so path existence is answered from the index rather than from a body map.
 const index = JSON.parse(fs.readFileSync(path.join(root, "data", "index.json"), "utf8"));
 const known = new Set(index.map((entry) => entry.path));
-const patch = YAML.parse(fs.readFileSync(path.join(root, "cordis.patch.yml"), "utf8"));
+const patch = workingPatch();
 
-const persona = patch[0].insert[0].config.plugins.find((plugin) => plugin.id === "persona");
+// Locate the preset by identity: `insert[0]` is the always-on row, not the preset.
+const persona = locateRows(patch).persona;
+if (persona === undefined) {
+  console.error("找不到 persona 行——补丁结构变了，本检查无法核对引用");
+  process.exit(1);
+}
 const texts = {
   prefix: persona?.config?.prefix ?? "",
   suffix: persona?.config?.suffix ?? "",

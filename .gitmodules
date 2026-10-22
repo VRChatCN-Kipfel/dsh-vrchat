@@ -4,3 +4,6 @@
 [submodule "vendor/vrchat-world-codex-skills"]
 	path = vendor/vrchat-world-codex-skills
 	url = https://github.com/VRChatCN-Kipfel/vrchat-world-codex-skills.git
+[submodule "vendor/vrchat-editor-skill"]
+	path = vendor/vrchat-editor-skill
+	url = https://github.com/XiaoboooOvO/VRChatEditorSkill.git
