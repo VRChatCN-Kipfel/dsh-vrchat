@@ -13,7 +13,8 @@
  * Usage: node tools/build-knowledge.mjs
  */
 import { readFile, writeFile, mkdir, readdir, stat, unlink, rm } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, posix } from "node:path";
@@ -165,40 +166,7 @@ function renderPatch(personaPrefix, personaSuffix) {
             name: "VRChat 创作模式",
             description: "VRChat World/Avatar/API 开发：专家人设 + 红线 + 全量领域知识。",
             order: 20,
-            plugins: [
-              {
-                id: "persona",
-                name: "@deepseek-ai/dsh-persona",
-                config: {
-                  prefix: personaPrefix.trim(),
-                  suffix: personaSuffix.trim(),
-                },
-              },
-              {
-                id: "vrchat-kb-preset",
-                name: "dsh-vrchat-kb",
-                config: { tier: "preset" },
-              },
-              {
-                // The vendored skills become ONE skill: the submodule root holds a
-                // SKILL.md, and the provider treats a root-level `.md` as a skill
-                // whose resource base is the whole repository. So the three
-                // sub-skill directories and their references stay reachable as
-                // resources — they do NOT need to be flattened into separate
-                // registrations, and the agent finds them by following the entry
-                // skill's own paths.
-                id: "vrchat-skills",
-                name: "@deepseek-ai/dsh-skill-filesystem",
-                config: {
-                  providerName: "vrchat-skills",
-                  customSkillDirs: [
-                    jsScalar(
-                      "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))",
-                    ),
-                  ],
-                },
-              },
-            ],
+            plugins: presetPlugins(personaPrefix.trim(), personaSuffix.trim()),
           },
         },
       ],
@@ -207,6 +175,71 @@ function renderPatch(personaPrefix, personaSuffix) {
   // Serialized, never templated: hand-built YAML is where the block scalars broke.
   const text = YAML.stringify(document, { lineWidth: 0 });
   return `${header}${text}`;
+}
+
+/**
+ * The preset's plugin rows, taken from the SHIPPED `standard` preset.
+ *
+ * There is no inheritance for agent presets — `dsh-agent-preset` accepts only
+ * `{id, name, description, order, plugins}` and stores the list verbatim, so a
+ * preset that wants the full coding agent must declare the full list. Hand-copying
+ * nineteen rows (three of them `cordis:group` with `isolate` realms) would drift the
+ * moment upstream edits one, so `tools/build-preset-plugins.mjs` reads the shipped
+ * file and emits this JSON; this function only fills in the persona text and the
+ * `!!js` path expression.
+ *
+ * A missing list is a hard failure, not a silent fallback: a four-row preset looks
+ * completely normal in the GUI while the session has no file tools, no shell, and no
+ * way to load a skill.
+ */
+function presetPlugins(personaPrefix, personaSuffix) {
+  const file = join(workspaceRoot, "preset-plugins.json");
+
+  // Generated, never committed: it is derived from the SHIPPED `standard` preset,
+  // whose content differs between DSH versions. Committing it would pin this
+  // repository to one release's plugin set while claiming to describe "the
+  // standard agent". Regenerating it here keeps the derivation live.
+  if (!existsSync(file)) {
+    const script = join(workspaceRoot, "tools", "build-preset-plugins.mjs");
+    const result = spawnSync(process.execPath, [script, workspaceRoot], { encoding: "utf8" });
+    if (result.status !== 0) {
+      throw new Error(
+        `无法生成 preset-plugins.json（来自 shipped standard 预设）。\n` +
+          `${result.stderr ?? ""}\n` +
+          "没有它，预设只能退回手写的少数几行，会话会缺少文件、命令与技能工具。",
+      );
+    }
+  }
+
+  const plugins = JSON.parse(readFileSync(file, "utf8"));
+
+  return plugins.map((plugin) => {
+    if (plugin.id === "persona") {
+      return { ...plugin, config: { prefix: personaPrefix, suffix: personaSuffix } };
+    }
+
+    // A platform-gated row keeps its `!!js` expression. Written as a plain string it
+    // would be a non-empty value, which YAML reads as truthy — disabling BOTH of
+    // tool-bash and tool-pwsh on every platform instead of one per platform.
+    if (typeof plugin.__JS_DISABLED__ === "string") {
+      const { __JS_DISABLED__, ...rest } = plugin;
+      return { ...rest, disabled: jsScalar(__JS_DISABLED__) };
+    }
+
+    // The `__JS__` placeholder marks a value that must serialize as a `!!js` tag.
+    if (plugin.config !== undefined && typeof plugin.config === "object") {
+      const config = structuredClone(plugin.config);
+      if (Array.isArray(config.customSkillDirs)) {
+        config.customSkillDirs = config.customSkillDirs.map((entry) =>
+          entry !== null && typeof entry === "object" && typeof entry.__JS__ === "string"
+            ? jsScalar(entry.__JS__)
+            : entry,
+        );
+      }
+      return { ...plugin, config };
+    }
+    return plugin;
+  });
 }
 
 async function readText(path) {

@@ -35,5 +35,13 @@ Desktop.ini
 #
 data/
 
+# The preset's plugin rows, derived from the SHIPPED `standard` preset by
+# `tools/build-preset-plugins.mjs`. Not tracked because its content depends on the
+# DSH version installed: committing one release's row set while calling it "the
+# standard agent" would silently pin us to it. `build-knowledge.mjs` regenerates it
+# on demand, and fails loudly if it cannot — a short list means a session with no
+# file, shell, or skill-loading tools, which looks entirely normal in the GUI.
+preset-plugins.json
+
 # Validation/scratch files
 .index-check.mjs

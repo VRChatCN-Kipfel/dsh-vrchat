@@ -66,17 +66,63 @@ check("共两行（工具 + 预设）", rows.length === 2, `${rows.length} 行`)
 
 // ── preset shape ────────────────────────────────────────────────────────
 check("预设 id 为 vrchat", preset?.config?.id === "vrchat", preset?.config?.id);
-check(
-  "预设含 persona / 知识库 / 技能提供者三个插件",
-  (preset?.config?.plugins?.length ?? 0) === 3,
-  String(preset?.config?.plugins?.length),
-);
 check("预设内 vrchat-kb 的 tier 为 preset", kb?.config?.tier === "preset", kb?.config?.tier);
 check("预设内实例与常驻实例 id 不同", kb?.id !== globalRow?.id, `${kb?.id} vs ${globalRow?.id}`);
 
-// The skill provider is what makes the vendored skills visible, and it must stay
-// INSIDE the preset: mounting it globally would list VRChat skills in every
-// session, which is the cost the two-row design exists to avoid.
+// The preset must carry the FULL agent, not a few rows bolted on. There is no
+// inheritance for agent presets, so a short plugin list silently means a session
+// with no file tools, no shell, and nothing that can load a skill — while looking
+// perfectly normal in the GUI.
+const presetPluginIds = (preset?.config?.plugins ?? []).map((plugin) => plugin.id);
+const REQUIRED_ROWS = [
+  "persona",
+  "agent-instructions",
+  "tool-bash",
+  "tool-pwsh",
+  "tool-fs",
+  "tool-fs-search",
+  "tool-jobs",
+  "skill-filesystem",
+  "tool-skill",
+  "planning",
+  "compaction",
+  "delegation",
+  "tool-ask-user",
+  "tool-todo",
+  "tool-web",
+];
+for (const id of REQUIRED_ROWS) {
+  check(`预设含 ${id}`, presetPluginIds.includes(id), `${presetPluginIds.length} 行`);
+}
+check(
+  "预设插件数 ≥ 20（standard 全集 + 我们的）",
+  presetPluginIds.length >= 20,
+  `${presetPluginIds.length} 行`,
+);
+
+// Platform gating must survive as an EXPRESSION. A plain string is truthy, which
+// would disable tool-bash AND tool-pwsh on every platform.
+const bashRow = (preset?.config?.plugins ?? []).find((plugin) => plugin.id === "tool-bash");
+const pwshRow = (preset?.config?.plugins ?? []).find((plugin) => plugin.id === "tool-pwsh");
+const patchText = fs.readFileSync(path.join(__dirname, "..", "cordis.patch.yml"), "utf8");
+check(
+  "tool-bash 的 disabled 是 !!js 表达式",
+  /disabled: !!js process\.platform === 'win32'/.test(patchText),
+  String(bashRow?.disabled).slice(0, 50),
+);
+check(
+  "tool-pwsh 的 disabled 是 !!js 表达式",
+  /disabled: !!js process\.platform !== 'win32'/.test(patchText),
+  String(pwshRow?.disabled).slice(0, 50),
+);
+
+// Service-bearing rows must sit in an isolated group; a bare service row publishes
+// into the root realm and collides with the next preset that mounts the same name.
+for (const groupId of ["planning", "compaction", "delegation"]) {
+  const group = (preset?.config?.plugins ?? []).find((plugin) => plugin.id === groupId);
+  check(`${groupId} 是 cordis:group`, group?.name === "cordis:group", group?.name);
+  check(`${groupId} 带 isolate 领域`, group?.isolate !== undefined, JSON.stringify(group?.isolate ?? null));
+}
 const skillsRow = preset?.config?.plugins?.find((plugin) => plugin.id === "vrchat-skills");
 check("预设内有技能提供者", skillsRow !== undefined, String(skillsRow?.id));
 check("技能提供者用 skill-filesystem", skillsRow?.name === "@deepseek-ai/dsh-skill-filesystem", skillsRow?.name);
@@ -93,6 +139,19 @@ check(
   "技能提供者不在常驻行里",
   !JSON.stringify(globalRow?.config ?? {}).includes("skill-filesystem"),
   "否则所有会话都会列出 VRChat 技能",
+);
+
+// The provider DISCOVERS skills; `tool-skill` is what renders the catalogue and
+// supplies the `skill` tool. Shipping one without the other produces files that
+// nothing lists and nothing can load — a live run reported eight KB tools, the
+// injected persona, and no reachable skill. Assert the pair, not just the provider.
+const readerRow = preset?.config?.plugins?.find((plugin) => plugin.id === "tool-skill");
+check("预设内有技能读取通道", readerRow !== undefined, String(readerRow?.id));
+check("读取通道用 tool-skill", readerRow?.name === "@deepseek-ai/dsh-tool-skill", readerRow?.name);
+check(
+  "提供者与读取通道成对出现",
+  skillsRow !== undefined && readerRow !== undefined,
+  "只有 skills 的提供者，没有 skills 的读取工具",
 );
 
 // The tier must gate injection, so the two configs cannot be identical.
