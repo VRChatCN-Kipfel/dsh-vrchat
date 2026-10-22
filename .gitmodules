@@ -1,3 +1,6 @@
 [submodule "VRChat-Agent-Creator-Library"]
 	path = VRChat-Agent-Creator-Library
 	url = https://github.com/RhineLab-magellan/VRChat-Agent-Creator-Library.git
+[submodule "vendor/vrchat-world-codex-skills"]
+	path = vendor/vrchat-world-codex-skills
+	url = https://github.com/VRChatCN-Kipfel/vrchat-world-codex-skills.git

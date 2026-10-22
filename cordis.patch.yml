@@ -642,3 +642,9 @@
             name: dsh-vrchat-kb
             config:
               tier: preset
+          - id: vrchat-skills
+            name: "@deepseek-ai/dsh-skill-filesystem"
+            config:
+              providerName: vrchat-skills
+              customSkillDirs:
+                - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))

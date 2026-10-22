@@ -121,6 +121,20 @@ function blockScalar(text, indent) {
  * injects the short red-line block by contract — see the tier branches in
  * index.js — so the "zero injection" claim is scoped to the preset text.
  */
+/**
+ * Wrap a JS expression as a `!!js`-tagged YAML node.
+ *
+ * The skills submodule sits beside the installed package, so its absolute path is
+ * only knowable at load time. A literal path would break on every other machine,
+ * and `customTags` with `identify` silently dropped the tag on yaml 2.9 — setting
+ * `Scalar.tag` explicitly is the form that actually emits `!!js`.
+ */
+function jsScalar(expression) {
+  const scalar = new YAML.Scalar(expression);
+  scalar.tag = "tag:yaml.org,2002:js";
+  return scalar;
+}
+
 function renderPatch(personaPrefix, personaSuffix) {
   const header = `# dsh-vrchat-kb — VRChat 创作知识库  【本文件由 tools/build-knowledge.mjs 生成，不要手改】
 #
@@ -165,6 +179,25 @@ function renderPatch(personaPrefix, personaSuffix) {
                 name: "dsh-vrchat-kb",
                 config: { tier: "preset" },
               },
+              {
+                // The vendored skills become ONE skill: the submodule root holds a
+                // SKILL.md, and the provider treats a root-level `.md` as a skill
+                // whose resource base is the whole repository. So the three
+                // sub-skill directories and their references stay reachable as
+                // resources — they do NOT need to be flattened into separate
+                // registrations, and the agent finds them by following the entry
+                // skill's own paths.
+                id: "vrchat-skills",
+                name: "@deepseek-ai/dsh-skill-filesystem",
+                config: {
+                  providerName: "vrchat-skills",
+                  customSkillDirs: [
+                    jsScalar(
+                      "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))",
+                    ),
+                  ],
+                },
+              },
             ],
           },
         },
@@ -172,7 +205,8 @@ function renderPatch(personaPrefix, personaSuffix) {
     },
   ];
   // Serialized, never templated: hand-built YAML is where the block scalars broke.
-  return `${header}${YAML.stringify(document, { lineWidth: 0 })}`;
+  const text = YAML.stringify(document, { lineWidth: 0 });
+  return `${header}${text}`;
 }
 
 async function readText(path) {

@@ -18,9 +18,23 @@ const YAML = requireFromProfile("yaml");
 const patchPath = path.join(__dirname, "..", "cordis.patch.yml");
 const text = fs.readFileSync(patchPath, "utf8");
 
+/**
+ * The `!!js` tag must be DECLARED, exactly as the Loader declares it.
+ *
+ * The patch uses `!!js` to evaluate a path at load time. Without the tag a plain
+ * `YAML.parse` emits `TAG_RESOLVE_FAILED` and leaves the value as a string, so a
+ * test would be checking a different document than the one the Loader sees.
+ * Declaring it here means the test reads the same structure the plugin will.
+ */
+const JS_TAG = {
+  tag: "tag:yaml.org,2002:js",
+  resolve: (value) => value,
+  identify: (value) => typeof value === "string" && value.startsWith("!!js "),
+};
+
 let parsed;
 try {
-  parsed = YAML.parse(text);
+  parsed = YAML.parse(text, { customTags: [JS_TAG] });
 } catch (error) {
   console.log(`FAIL  YAML 解析失败\n      ${String(error?.message ?? error)}`);
   process.exitCode = 1;
@@ -52,9 +66,34 @@ check("共两行（工具 + 预设）", rows.length === 2, `${rows.length} 行`)
 
 // ── preset shape ────────────────────────────────────────────────────────
 check("预设 id 为 vrchat", preset?.config?.id === "vrchat", preset?.config?.id);
-check("预设含 persona 与 vrchat-kb 两个插件", (preset?.config?.plugins?.length ?? 0) === 2);
+check(
+  "预设含 persona / 知识库 / 技能提供者三个插件",
+  (preset?.config?.plugins?.length ?? 0) === 3,
+  String(preset?.config?.plugins?.length),
+);
 check("预设内 vrchat-kb 的 tier 为 preset", kb?.config?.tier === "preset", kb?.config?.tier);
 check("预设内实例与常驻实例 id 不同", kb?.id !== globalRow?.id, `${kb?.id} vs ${globalRow?.id}`);
+
+// The skill provider is what makes the vendored skills visible, and it must stay
+// INSIDE the preset: mounting it globally would list VRChat skills in every
+// session, which is the cost the two-row design exists to avoid.
+const skillsRow = preset?.config?.plugins?.find((plugin) => plugin.id === "vrchat-skills");
+check("预设内有技能提供者", skillsRow !== undefined, String(skillsRow?.id));
+check("技能提供者用 skill-filesystem", skillsRow?.name === "@deepseek-ai/dsh-skill-filesystem", skillsRow?.name);
+check(
+  "技能目录指向 vendor 子模块",
+  /vendor\/vrchat-world-codex-skills/.test(JSON.stringify(skillsRow?.config ?? {})),
+  JSON.stringify(skillsRow?.config ?? {}).slice(0, 120),
+);
+check(
+  "技能目录用 !!js 在运行时解析（不硬编码绝对路径）",
+  /!!js|process\.getBuiltinModule/.test(JSON.stringify(skillsRow?.config ?? {})),
+);
+check(
+  "技能提供者不在常驻行里",
+  !JSON.stringify(globalRow?.config ?? {}).includes("skill-filesystem"),
+  "否则所有会话都会列出 VRChat 技能",
+);
 
 // The tier must gate injection, so the two configs cannot be identical.
 check("两个实例的 tier 不同", globalRow?.config?.tier !== kb?.config?.tier);
