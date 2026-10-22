@@ -54,6 +54,7 @@ import {
   decodeLockfilePid,
   detectCommandLineEvidence,
   detectProjectEvidence,
+  inspectLicense,
   renderReport,
 } from "./lib/unity-status.js";
 
@@ -948,12 +949,29 @@ function apply(ctx, config) {
           }
         }
 
+        // The license is checked on every run: an expired one makes Unity refuse
+        // to open a project and fail builds, with errors that point at the project.
+        // Only the DATE fields are read — the .ulf file holds keys and they are
+        // never touched.
+        const license = inspectLicense({
+          programData: process.env.ProgramData ?? "C:\\ProgramData",
+          exists: (p) => existsSync(p),
+          readText: (p) => {
+            try {
+              return readFileSync(p, "utf8");
+            } catch {
+              return null;
+            }
+          },
+        });
+
         const text = renderReport({
           processes,
           projects,
           commandEvidence,
           cliDetected: snapshot.cli === true,
           diagnostics,
+          license,
         });
 
         return {

@@ -87,6 +87,18 @@ if (typeof prefix === "string") {
   check("要求先说观测限制再给复核办法", /先说这是观测限制/.test(prefix));
   check("禁止断言用户没装", /不要断言「你没装/.test(prefix));
   check("用户说开着时先怀疑权限", /先怀疑权限，不要先怀疑他/.test(prefix));
+
+  // Unity's failures often live outside the code. An expired license is the most
+  // common one and its symptoms point at the project, so the prompt must lead with
+  // environment before code — and must say the probe reports the state.
+  check("说明失败常不在代码里", /失败经常不在代码里/.test(prefix));
+  check("许可证过期排在首位", /许可证过期.*最常见/.test(prefix));
+  check("说明探测会报剩余天数", /剩余天数/.test(prefix));
+  check("说明过期症状像项目损坏", /打不开项目/.test(prefix));
+  check("要求提前续期", /提前续/.test(prefix) && /不要等做到一半/.test(prefix));
+  check("列出管理员权限问题", /running as administrator/.test(prefix));
+  check("要求先排环境再动代码", /先排环境，再动代码/.test(prefix));
+  check("禁止一上来怀疑用户代码", /不要一上来就怀疑他写的代码/.test(prefix));
   check("说明它只读不读凭据", /只读、不读凭据/.test(prefix));
   check("要求 agent 自己确认端点与 token", /自己去看该 PID 的启动参数/.test(prefix));
   check("prefix 无转义残留", !prefix.includes("\\n"));
