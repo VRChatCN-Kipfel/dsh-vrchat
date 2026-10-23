@@ -16,8 +16,8 @@ const { createRequire } = require("node:module");
 const { pathToFileURL } = require("node:url");
 
 const ROOT = path.join(__dirname, "..");
-const HOST = "D:\\Program Files\\DSH Desktop\\resources\\app.asar.unpacked\\node_modules";
-const requireHost = createRequire(path.join(HOST, "noop.js"));
+const { findHostModules } = require("./lib-host-modules.cjs");
+const requireHost = createRequire(path.join(findHostModules(), "noop.js"));
 
 async function main() {
   const roots = [

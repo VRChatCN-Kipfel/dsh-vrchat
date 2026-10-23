@@ -19,9 +19,12 @@ async function main() {
   }
 
   // The real validator, taken from the installed Host.
-  const hostModules = "D:\\Program Files\\DSH Desktop\\resources\\app.asar.unpacked\\node_modules\\@deepseek-ai";
-  const { createRequire } = require("node:module");
-  const requireHost = createRequire(path.join(hostModules, "noop.js"));
+  //
+  // Resolved rather than hardcoded: a literal install path is correct on one machine
+  // and produces a bare ENOENT on the next, which reads as "the check is broken"
+  // rather than "DSH lives somewhere else here".
+  const { hostRequireFactory } = require("./lib-host-modules.cjs");
+  const requireHost = hostRequireFactory();
 
   // SKILL_NAME and isSkillName are exported; use them rather than re-deriving the regex.
   const skillPkg = requireHost("@deepseek-ai/dsh-skill");

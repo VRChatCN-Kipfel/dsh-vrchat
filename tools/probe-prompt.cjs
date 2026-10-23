@@ -1,8 +1,18 @@
-/** Determine whether our section replaces or appends to the system prompt. */
+/**
+ * Read the Host's own system-prompt renderer to answer a design question.
+ *
+ * Kept as a probe because the answer is a one-time fact that later gets encoded in
+ * index.js: our section APPENDS (it does not replace the prompt), and
+ * `PromptSection.complete: true` is the only way to replace. Re-reading the source
+ * is cheaper than trusting a comment.
+ *
+ * Usage: node tools/probe-prompt.cjs
+ */
 const fs = require("node:fs");
 
-const file =
-  "D:/Program Files/DSH Desktop/resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js";
+const { findHostModules } = require("./lib-host-modules.cjs");
+
+const file = findHostModules("@deepseek-ai/dsh-system-prompt/lib/index.js");
 const text = fs.readFileSync(file, "utf8");
 
 // The renderer that joins sections.

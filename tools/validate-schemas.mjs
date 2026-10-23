@@ -20,8 +20,9 @@ import { createRequire } from "node:module";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 
-const COMPILER_PATH =
-  "D:/Program Files/DSH Desktop/resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-tools/lib/index.js";
+// Resolve the Host rather than hardcoding its install path — see lib-host-modules.cjs.
+const hostModules = await import("./lib-host-modules.cjs");
+const COMPILER_PATH = hostModules.findHostModules("@deepseek-ai/dsh-tools/lib/index.js");
 
 const require = createRequire(import.meta.url);
 

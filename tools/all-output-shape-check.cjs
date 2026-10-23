@@ -14,8 +14,8 @@ const { createRequire } = require("node:module");
 const { pathToFileURL } = require("node:url");
 
 const root = path.join(__dirname, "..");
-const hostModules = "D:\\Program Files\\DSH Desktop\\resources\\app.asar.unpacked\\node_modules";
-const requireHost = createRequire(path.join(hostModules, "noop.js"));
+// Resolve the Host rather than hardcoding its install path — see lib-host-modules.cjs.
+const requireHost = require("./lib-host-modules.cjs").hostRequireFactory();
 const { isJsonValue } = requireHost("@deepseek-ai/dsh-util-values");
 
 async function main() {

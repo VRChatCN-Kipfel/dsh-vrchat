@@ -208,6 +208,14 @@ plugins.push({
   name: "@deepseek-ai/dsh-skill-filesystem",
   config: {
     providerName: "vrchat-skills",
+    // This instance exists ONLY for the two vendored roots. Without this line it
+    // keeps the default `includeDefaultRoots: true`, so it also scans
+    // ~/.agents/skills, DSH_HOME/skills and the project roots — which the
+    // `skill-filesystem` row from `standard` already does. Both providers then
+    // return the same user skills, the registry drops the duplicates with a
+    // "higher-priority skill already exists" warning, and every such scan pays
+    // twice the IO for an identical answer.
+    includeDefaultRoots: false,
     customSkillDirs: [
       { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))" },
       { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-editor-skill/', baseUrl))" },

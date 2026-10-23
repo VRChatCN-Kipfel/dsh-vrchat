@@ -18,13 +18,28 @@ agent 不需要知道 `entities/world/udon/persistence/index.md` 存在，只需
 
 | 模式 | 触发 | 注入内容 | 估算 |
 |---|---|---|---|
-| 默认（`tier: lite`，常驻） | 任意会话 | **不注入任何 prompt 文本**，只注册 6 个工具与 `/vrchat` | 工具定义 ~2–3K tok |
-| VRChat 创作预设（`tier: preset`） | 选用 `vrchat` 预设 | 红线 + 覆盖地图 + World/Avatar/Shader 全量域块 | ~2650–3840 tok |
+| 默认（`tier: lite`，常驻） | 任意会话 | **不注入任何 prompt 文本**，只注册 8 个工具与 `/vrchat` | 工具定义 ~2–3K tok |
+| VRChat 创作预设（`tier: preset`） | 选用 `vrchat` 预设 | 红线 + 覆盖地图 + World/Avatar/Shader 全量域块 | prefix 4.5–6.9k + suffix 2.7–3.9k tok |
 
 **注入由预设门控，工具不门控。** 常驻行（`tier: lite`）在任何会话都挂上，所以 agent 随时可以
 向知识库提问；它之所以不注入，是因为「VRChat 专家」这个身份只在用户选了预设时才成立。
 
 `full` 是 `preset` 的兼容别名（行为完全相同），新配置不要再写 `full`。
+
+八个工具：`vrchat_kb`（概念）/ `_grep`（定位给行号）/ `_read`（按行读上下文）/ `_api`（是否在
+Udon 暴露）/ `_filter`（按元数据筛）/ `_list`（库概况）/ `_unity`（Unity 运行时与许可证）/
+`_scan`（产出代码违例自查）。
+
+**注入在哪一块什么内容**（`docs/vrchat-kb-architecture.md` §2 详解）：
+
+| 位置 | 内容 | 规模 |
+|---|---|---|
+| persona `prefix`（order 0） | 专家身份 / 领域事实 / 域边界 / 工具索引 | 10,835 字符 |
+| persona `suffix`（order 10200） | 10 条红线 + 三个域块 | 7,964 字符 |
+| `vrchat-kb` section（order 640） | 只有状态标注与分流指引，**不复制红线** | 551 字符 |
+
+order 640 曾经内联 `t0-core + always-load`，而 suffix 已逐字带上同样内容 —— 99.6% 重合，
+每次预设会话白烧约 2700–4000 tok。现在红线只存在一处。
 
 ## 技能（两套，同为 submodule，原样引入不改上游）
 
