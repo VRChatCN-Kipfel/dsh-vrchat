@@ -513,6 +513,71 @@ function apply(ctx, config) {
     }
   };
 
+  /**
+   * Sum this session's tool calls with those of every descendant session.
+   *
+   * WHY NOT AGGREGATE IN STATE: a subagent runs in its own Session with its own
+   * log, so the parent's projection fold never sees the child's `tool/call`
+   * events. Nothing can accumulate them into the parent's cell — the data is not
+   * there. So the sum happens at QUERY time, over the live session list, which is
+   * also why the ledger records `role` and `parentSession` at all.
+   *
+   * WHY NOT AGGREGATE TOKENS: a child's context is a separate model call that
+   * receives no section of its own (the preset's scope belongs to the parent), so
+   * charging the parent the child's injection would double-count what the parent
+   * already paid. Only the CALL COUNTS aggregate — they answer "how much did this
+   * piece of work ask the library", which is genuinely one number for a subtree.
+   *
+   * Walks the tree rather than one level, because delegation nests: a subagent may
+   * itself delegate, and `delegationDepth` allows that.
+   *
+   * @param root - the root session.
+   * @returns `{ calls, descendants }`; calls is 0 when the service is absent.
+   */
+  const subtreeCalls = (root) => {
+    const live = ctx.get("sessions");
+    if (live?.list === undefined || root === undefined) return { calls: 0, descendants: 0 };
+
+    let all;
+    try {
+      all = live.list();
+    } catch {
+      return { calls: 0, descendants: 0 };
+    }
+
+    // Index by parent so the walk is one pass, not one scan per level.
+    const childrenOf = new Map();
+    for (const session of all) {
+      const parent = session?.header?.parentSession;
+      if (typeof parent !== "string") continue;
+      const bucket = childrenOf.get(parent) ?? [];
+      bucket.push(session);
+      childrenOf.set(parent, bucket);
+    }
+
+    const countOf = (session) => {
+      const state = readLedger({ session });
+      if (state === undefined) return 0;
+      return state.digestCalls + state.grepCalls + state.readCalls + state.scanCalls;
+    };
+
+    let calls = countOf(root);
+    let descendants = 0;
+    const queue = [...(childrenOf.get(root.id) ?? [])];
+    const seen = new Set();
+    while (queue.length > 0) {
+      const session = queue.shift();
+      // A cyclic or duplicated parent link would loop forever; ids are unique in
+      // practice, but one bad header must not hang a slash command.
+      if (session === undefined || seen.has(session.id)) continue;
+      seen.add(session.id);
+      descendants++;
+      calls += countOf(session);
+      queue.push(...(childrenOf.get(session.id) ?? []));
+    }
+    return { calls, descendants };
+  };
+
   ctx.tools.register(
     defineTool({
       name: "vrchat_kb",
@@ -1561,6 +1626,19 @@ function apply(ctx, config) {
                 `  账本记录的注入量：${ledger.injectedChars} 字符` +
                   (ledger.role === "child" ? "（子会话：不继承父会话的注入成本）" : ""),
               );
+
+              // Subagent sessions are separate Sessions with their own logs, so the
+              // parent's fold never sees their tool calls. The subtree sum is
+              // therefore computed here, at query time, not accumulated in state.
+              const subtree = subtreeCalls(invocation.agent?.session);
+              if (subtree.descendants > 0) {
+                lines.push(
+                  `  含子会话合计：${subtree.calls} 次查询（${subtree.descendants} 个子会话；` +
+                    `token 不聚合——子会话自己付自己的上下文）`,
+                );
+              } else {
+                lines.push(`  含子会话合计：${subtree.calls} 次查询（无子会话）`);
+              }
             }
 
             if (tokenMeter !== undefined && invocation.agent?.session !== undefined) {
