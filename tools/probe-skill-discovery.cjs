@@ -11,6 +11,7 @@
  *
  * Usage: node tools/probe-skill-discovery.cjs
  */
+const fs = require("node:fs");
 const path = require("node:path");
 const { createRequire } = require("node:module");
 const { pathToFileURL } = require("node:url");
@@ -20,9 +21,13 @@ const { findHostModules } = require("./lib-host-modules.cjs");
 const requireHost = createRequire(path.join(findHostModules(), "noop.js"));
 
 async function main() {
+  // Must mirror `customSkillDirs` in the shipped row. If this list drifts from the
+  // build script the probe keeps passing while the real preset serves a different
+  // set — the failure mode this whole file exists to prevent.
   const roots = [
     path.join(ROOT, "vendor", "vrchat-world-codex-skills"),
     path.join(ROOT, "vendor", "vrchat-editor-skill"),
+    path.join(ROOT, "vendor", "vrc-get-cli"),
   ];
 
   const entry = requireHost.resolve("@deepseek-ai/dsh-skill-filesystem");
@@ -73,8 +78,40 @@ async function main() {
 
   const vendoredCount = list.filter(isVendored).length;
   console.log(`\n随包技能 ${vendoredCount} 个 / 默认根技能 ${list.length - vendoredCount} 个`);
-  if (vendoredCount < 5) {
-    console.log(`✗ 随包技能少于 5 个 —— customSkillDirs 的 !!js 表达式可能丢了`);
+  // Count the skills under OUR roots by discovery, not by a literal: a hardcoded
+  // floor silently rots the moment a root is added, and the point of this check is
+  // to catch a LOST root, not to police how many we ship.
+  //
+  // The shape rule mirrors the provider's, including the part that is easy to miss:
+  //   · a root-level `*.md` counts ONLY when it opens with YAML frontmatter carrying
+  //     name + description. `README.md` sits beside `SKILL.md` in BOTH vendored roots
+  //     and the provider ignores it with a warning — counting it inflates the
+  //     expectation by two and makes this check report a permanent false "lost root";
+  //   · a DIRECTORY counts only when it holds a `SKILL.md`;
+  //   · everything else (references/, assets/, docs/) is a resource directory.
+  const isSkillFile = (file) => {
+    if (!fs.existsSync(file)) return false;
+    const text = fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+    if (!text.startsWith("---\n")) return false;
+    const end = text.indexOf("\n---", 3);
+    if (end === -1) return false;
+    const front = text.slice(4, end);
+    return /^name:\s*\S/m.test(front) && /^description:/m.test(front);
+  };
+  const expected = roots.reduce((n, root) => {
+    if (!fs.existsSync(root)) return n;
+    return (
+      n +
+      fs.readdirSync(root).filter((name) => {
+        const full = path.join(root, name);
+        const stat = fs.statSync(full, { throwIfNoEntry: false });
+        if (stat === undefined) return false;
+        return stat.isFile() ? name.endsWith(".md") && isSkillFile(full) : isSkillFile(path.join(full, "SKILL.md"));
+      }).length
+    );
+  }, 0);
+  if (vendoredCount !== expected) {
+    console.log(`✗ 随包技能 ${vendoredCount} 个，但 ${roots.length} 个根里应有 ${expected} 个 —— customSkillDirs 可能丢了一整个根`);
   }
 
   // `get()` is what the model actually receives — prove the body is reachable too.

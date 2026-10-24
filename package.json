@@ -22,7 +22,8 @@
     "locale/*.json",
     "VRChat-Agent-Creator-Library",
     "vendor/vrchat-world-codex-skills",
-    "vendor/vrchat-editor-skill"
+    "vendor/vrchat-editor-skill",
+    "vendor/vrc-get-cli"
   ],
   "dsh": {
     "bundle": {

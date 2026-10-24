@@ -227,6 +227,10 @@ plugins.push({
     customSkillDirs: [
       { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))" },
       { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-editor-skill/', baseUrl))" },
+      // Ours, not vendored from anywhere: the VPM CLI (`vrc-get`, the engine behind
+      // ALCOM). One skill plus four references, so the catalogue pays 274 characters
+      // and the 12 KB of detail is only read when the skill is actually loaded.
+      { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrc-get-cli/', baseUrl))" },
     ],
   },
 });
@@ -262,10 +266,13 @@ if (!hasReader || !hasProvider) {
 
 // Both skill roots must survive as `!!js`, or the provider finds nothing and the
 // catalogue comes up empty with no error. Counting entries is the cheap check.
+// The expected count is derived from what we pushed, not hardcoded: the number of
+// skill roots has grown (2 → 3) and a literal here turns every addition into a
+// build failure that says "should be 2" rather than "the !!js tag was lost".
 const skillDirs = plugins.find((plugin) => plugin.id === "vrchat-skills")?.config?.customSkillDirs ?? [];
 const jsDirs = skillDirs.filter((entry) => entry !== null && typeof entry === "object" && typeof entry.__JS__ === "string");
-if (jsDirs.length !== 2) {
-  throw new Error(`技能目录应有 2 个 !!js 表达式，实际 ${jsDirs.length}`);
+if (jsDirs.length !== skillDirs.length || skillDirs.length === 0) {
+  throw new Error(`技能目录应有 ${skillDirs.length} 个 !!js 表达式，实际 ${jsDirs.length}`);
 }
 
 console.log(`最终插件行数: ${plugins.length}`);

@@ -50,6 +50,19 @@ const ROOTS = [
       "LICENSE",
     ],
   },
+  {
+    // Ours, not vendored. The four references are the point of the split: they cost
+    // nothing in the catalogue and are only read after the skill is loaded, so a
+    // missing one would quietly weaken the skill while every count still looked right.
+    dir: "vendor/vrc-get-cli",
+    expected: [
+      "SKILL.md",
+      "references/install-and-upgrade.md",
+      "references/repositories.md",
+      "references/inspect.md",
+      "references/migrate.md",
+    ],
+  },
 ];
 
 async function main() {

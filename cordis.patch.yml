@@ -892,3 +892,4 @@
               customSkillDirs:
                 - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))
                 - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-editor-skill/', baseUrl))
+                - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrc-get-cli/', baseUrl))
