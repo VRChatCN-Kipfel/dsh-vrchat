@@ -41,14 +41,30 @@ async function main() {
   check("首查入账", state.queries.length === 1);
   check("首查计数", state.digestCalls === 1);
 
-  const sameTurn = mod.findPriorQuery(state, "udon 同步变量！");
-  check("同轮同问题命中（应提示已查）", sameTurn !== undefined, sameTurn?.query);
+  // The handler runs AFTER its own tool/call is folded in, so the state it reads
+  // already contains this very call. A first query must therefore NOT be reported
+  // as a repeat — that was the bug: the test used to assert the opposite.
+  check(
+    "首查不算重复（handler 读到的是自己那一次）",
+    mod.findPriorQuery(state, "udon 同步变量！", { excludeCurrentCall: true }) === undefined,
+    "excludeCurrentCall 必须排除当前这次调用",
+  );
+  // Without the flag the entry is still findable — the flag is the only difference.
+  check(
+    "不带 excludeCurrentCall 仍能查到（供已完成状态使用）",
+    mod.findPriorQuery(state, "udon 同步变量！") !== undefined,
+  );
+
+  // A genuine second call in the same turn IS a repeat.
+  const repeated = mod.applyLedger(state, toolCall("vrchat_kb", { query: "udon 同步变量" }, 3));
+  const repeatHit = mod.findPriorQuery(repeated, "Udon 同步变量", { excludeCurrentCall: true });
+  check("同轮第二次同问题命中（应提示已查）", repeatHit !== undefined, repeatHit?.query);
 
   // Another step in the SAME turn must still hit: steps are not the scope.
-  const nextStep = mod.applyLedger(state, toolCall("vrchat_kb", { query: "physbone 上限" }, 3));
+  const nextStep = mod.applyLedger(repeated, toolCall("vrchat_kb", { query: "physbone 上限" }, 4));
   check(
     "同轮跨步仍命中",
-    mod.findPriorQuery(nextStep, "Udon 同步变量") !== undefined,
+    mod.findPriorQuery(nextStep, "Udon 同步变量", { excludeCurrentCall: true }) !== undefined,
     "step 不改变作用域",
   );
 
@@ -75,22 +91,30 @@ async function main() {
   );
   check("压缩不影响累计调用数", afterCompaction.digestCalls === 1);
 
-  // A query AFTER compaction is remembered again.
+  // A query AFTER compaction is remembered again, and is NOT its own prior.
   const afterCompactionQuery = mod.applyLedger(
     afterCompaction,
     toolCall("vrchat_kb", { query: "Udon 同步变量" }, 4),
   );
   check(
-    "压缩后重新查询可再次入账",
-    mod.findPriorQuery(afterCompactionQuery, "Udon 同步变量") !== undefined,
+    "压缩后重新查询可再次入账（非自我命中）",
+    mod.findPriorQuery(afterCompactionQuery, "Udon 同步变量", { excludeCurrentCall: true }) === undefined,
+  );
+  const afterCompactionRepeat = mod.applyLedger(
+    afterCompactionQuery,
+    toolCall("vrchat_kb", { query: "Udon 同步变量" }, 5),
+  );
+  check(
+    "压缩后同代重复才命中",
+    mod.findPriorQuery(afterCompactionRepeat, "Udon 同步变量", { excludeCurrentCall: true }) !== undefined,
   );
   check("且 generation 为新的一代", afterCompactionQuery.queries[0].generation === 1);
 
   // Turning the page also invalidates the earlier generation's records.
-  const turn3 = mod.applyLedger(afterCompactionQuery, turnStart(2, 5));
+  const turn3 = mod.applyLedger(afterCompactionRepeat, turnStart(2, 6));
   check(
     "跨轮 + 跨压缩后仍不命中",
-    mod.findPriorQuery(turn3, "Udon 同步变量") === undefined,
+    mod.findPriorQuery(turn3, "Udon 同步变量", { excludeCurrentCall: true }) === undefined,
   );
 
   // ── counters ────────────────────────────────────────────────────────────

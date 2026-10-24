@@ -631,8 +631,15 @@ function apply(ctx, config) {
         // noise; after compaction the earlier digest was replaced out of the
         // visible conversation, so claiming "already asked" would hand the model
         // a claim it cannot look up. In either case, answer fresh.
+        //
+        // `excludeCurrentCall` is required here, not cosmetic: THIS tool's call was
+        // already folded into the ledger before the handler ran, so without it the
+        // match is the current call and every FIRST query would be answered with
+        // "already asked this turn" — false at the moment the model reads it. A live
+        // probe caught exactly that. Only a genuinely repeated query (the ledger
+        // counted two or more calls in scope) may trigger the notice.
         const ledger = readLedger(exec.agent);
-        const prior = findPriorQuery(ledger, query);
+        const prior = findPriorQuery(ledger, query, { excludeCurrentCall: true });
         if (prior !== undefined) {
           const result = answer(store, query, { limit, charBudget });
           return {

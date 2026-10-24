@@ -62,3 +62,4 @@ preset-plugins.json
 # and `git add -A` picks it up before the commit reads it — which happened twice.
 m[0-9].txt
 rel.txt
+.probe-digest-repeat.mjs
