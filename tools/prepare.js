@@ -42,30 +42,121 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = join(ROOT, "..");
 
 /**
- * Pinned sources. The commit hashes match `.gitmodules`' recorded gitlinks at the
- * time of writing; change both together if you bump one.
+ * Commit pins, keyed by submodule PATH.
+ *
+ * Only the pin lives here. Paths and URLs are read from `.gitmodules`, which is the
+ * single source of truth for them — renaming a submodule or changing its URL is a
+ * `.gitmodules` edit and needs no code change.
+ *
+ * The pin CANNOT come from `.gitmodules`: that file records path, url and a few
+ * options, but not the checked-out commit. The commit is a gitlink in the tree
+ * (mode 160000), and a codeload tarball carries no tree metadata to read it from.
+ * So it stays pinned here, and a submodule with no pin is a hard error rather than
+ * a silent "clone the default branch" — floating versions would make an installed
+ * knowledge base differ between two machines.
  */
-const SOURCES = [
-  {
-    path: "VRChat-Agent-Creator-Library",
-    url: "https://github.com/RhineLab-magellan/VRChat-Agent-Creator-Library.git",
-    commit: "590a9f90833a6fe98044c10aea4fb86ed4876fc9",
-    // What must exist afterwards, so a "successful" clone of nothing is caught.
-    expect: ["memoryV5.0.0/LLMWikiExample/LLMWikiPage"],
-  },
-  {
-    path: "vendor/vrchat-world-codex-skills",
-    url: "https://github.com/VRChatCN-Kipfel/vrchat-world-codex-skills.git",
-    commit: "08ef020dde293882edaf6d94834d2f44839fb307",
-    expect: ["SKILL.md"],
-  },
-  {
-    path: "vendor/vrchat-editor-skill",
-    url: "https://github.com/XiaoboooOvO/VRChatEditorSkill.git",
-    commit: "6aa07769b56ccb0a4450ba90bab53aaf3c287869",
-    expect: ["SKILL.md"],
-  },
-];
+const PINS = {
+  "VRChat-Agent-Creator-Library": "590a9f90833a6fe98044c10aea4fb86ed4876fc9",
+  "vendor/vrchat-world-codex-skills": "08ef020dde293882edaf6d94834d2f44839fb307",
+  "vendor/vrchat-editor-skill": "6aa07769b56ccb0a4450ba90bab53aaf3c287869",
+};
+
+/**
+ * What must exist after each clone, so "successfully cloned nothing" is caught.
+ * Keyed by path for the same reason as the pins.
+ */
+const EXPECT = {
+  "VRChat-Agent-Creator-Library": ["memoryV5.0.0/LLMWikiExample/LLMWikiPage"],
+  "vendor/vrchat-world-codex-skills": ["SKILL.md"],
+  "vendor/vrchat-editor-skill": ["SKILL.md"],
+};
+
+/**
+ * Parse `.gitmodules`.
+ *
+ * Format is git-config: `[submodule "name"]` headers followed by `key = value`
+ * lines, with `#`/`;` comments and optional quoting around the value. Only `path`
+ * and `url` are read; anything else is ignored on purpose, so a new option added
+ * upstream does not break the parse.
+ *
+ * @returns {{name: string, path: string, url: string}[]}
+ * @throws when the file is absent — that is a packaging bug (`.gitmodules` must be
+ *         in `files`), and guessing the sources instead would hide it.
+ */
+function parseGitmodules(file) {
+  if (!existsSync(file)) {
+    throw new Error(
+      `找不到 ${file}。它是三个上游仓库的权威来源，必须随包分发（package.json 的 files 白名单里要有它）。`,
+    );
+  }
+  const text = readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+  const out = [];
+  let current = null;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.length === 0 || line.startsWith("#") || line.startsWith(";")) continue;
+
+    const header = line.match(/^\[submodule\s+"(.+)"\]$/);
+    if (header !== null) {
+      current = { name: header[1], path: null, url: null };
+      out.push(current);
+      continue;
+    }
+    if (current === null) continue;
+
+    const kv = line.match(/^([A-Za-z][A-Za-z0-9-]*)\s*=\s*(.*)$/);
+    if (kv === null) continue;
+    // Values may be quoted; strip a matching pair.
+    let value = kv[2].trim();
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+      value = value.slice(1, -1);
+    }
+    if (kv[1] === "path") current.path = value;
+    else if (kv[1] === "url") current.url = value;
+  }
+
+  const usable = out.filter((entry) => typeof entry.path === "string" && typeof entry.url === "string");
+  if (usable.length === 0) {
+    throw new Error(`${file} 里没有解析出任何 submodule（path + url）。`);
+  }
+  return usable;
+}
+
+/**
+ * Combine `.gitmodules` (path + url) with the pin table (commit + expected contents).
+ * @throws listing every problem at once, so one run tells you everything to fix.
+ */
+function resolveSources() {
+  const declared = parseGitmodules(join(PKG_ROOT, ".gitmodules"));
+  const problems = [];
+  const sources = [];
+
+  for (const entry of declared) {
+    const commit = PINS[entry.path];
+    if (commit === undefined) {
+      problems.push(`  · ${entry.path} 在 .gitmodules 里，但 PINS 没有它的 commit 钉点`);
+      continue;
+    }
+    const expect = EXPECT[entry.path];
+    if (expect === undefined) {
+      problems.push(`  · ${entry.path} 在 .gitmodules 里，但 EXPECT 没有它的产物检查项`);
+      continue;
+    }
+    sources.push({ path: entry.path, url: entry.url, commit, expect });
+  }
+
+  // A pin with no submodule is dead weight and usually means a rename went half-done.
+  for (const path of Object.keys(PINS)) {
+    if (!declared.some((entry) => entry.path === path)) {
+      problems.push(`  · PINS 里的 ${path} 在 .gitmodules 里没有对应项（改名了？还是删了？）`);
+    }
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`.gitmodules 与 prepare 的钉点表不一致：\n${problems.join("\n")}`);
+  }
+  return sources;
+}
 
 /** `data/` artifacts the plugin asserts on at load. */
 const DATA_ARTIFACTS = [
@@ -252,8 +343,16 @@ function main() {
     );
   }
 
+  // Resolve the source list BEFORE touching the network: a mismatch between
+  // `.gitmodules` and the pin table is a packaging bug, and failing fast here beats
+  // cloning two repos and then discovering the third has no pin.
+  const sources = resolveSources();
+  console.log(
+    `[prepare] .gitmodules 声明了 ${sources.length} 个上游仓库：${sources.map((s) => s.path).join(", ")}`,
+  );
+
   let fetched = 0;
-  for (const source of SOURCES) {
+  for (const source of sources) {
     if (fetchSource(source)) fetched++;
   }
 
