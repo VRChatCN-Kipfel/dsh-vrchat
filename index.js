@@ -42,6 +42,14 @@ import {
 } from "./lib/ledger.js";
 import { buildIndex, lookup } from "./lib/api-table.js";
 import {
+  planProject,
+  applyProject,
+  summarize,
+  ScaffoldError,
+  VPM_SDK,
+  DEFAULT_UNITY,
+} from "./lib/project-scaffold.js";
+import {
   FILTER_FIELDS,
   validateFilters,
   filterIndex,
@@ -1521,6 +1529,133 @@ function apply(ctx, config) {
           findings: findings.map((f) => ({ ...f })),
           scanned,
           skipped,
+        };
+      },
+    }),
+  );
+
+  // ── vrchat_kb_project_new — create a minimal VRChat Unity project ─────────
+  //
+  // The gap this fills: an agent asked to "make me a world" had no way to start
+  // one. ALCOM can create projects, but only through Tauri IPC inside the GUI
+  // process, and `vrc-get` has no create subcommand at all. Everything else in the
+  // chain (installing the SDK, resolving packages) is already `vrc-get`'s job.
+  //
+  // It writes the `Blank` shape vrc-get-gui itself uses — three directories, one
+  // line of ProjectVersion.txt, and the two package manifests taken verbatim from
+  // the upstream project-templates. It does NOT fabricate Unity's serialized
+  // ProjectSettings.asset / InputManager.asset: those are 25 KB of YAML each and a
+  // hand-written copy would be unverifiable without opening Unity.
+  ctx.tools.register(
+    defineTool({
+      name: "vrchat_kb_project_new",
+      description:
+        "创建一个最小可用的 VRChat Unity 工程骨架（World 或 Avatar），只写文件，不联网、不启动 Unity、不装 SDK。" +
+        "当你需要给用户从零起一个工程时用它——ALCOM 的建工程能力只在 GUI 里，命令行没有入口。" +
+        "目标已存在时默认拒绝并列出内容；确认要覆盖需 force: true（会先备份原目录）。" +
+        "创建后 SDK 尚未安装，需要再跑 vrc-get resolve。",
+      parameters: {
+        targetDir: {
+          type: "string",
+          required: true,
+          description: "要创建工程的完整目录路径，例如 E:\\\\projects\\\\my-world。父目录必须已存在。",
+        },
+        type: {
+          type: "string",
+          required: true,
+          description: "world 或 avatar —— 决定写入哪个 VRChat SDK（com.vrchat.worlds / com.vrchat.avatars）。",
+        },
+        unityVersion: {
+          type: "string",
+          description: "Unity 版本，默认 2022.3.22f1（VRChat SDK 3.5.0+ 绑定）。格式如 2022.3.22f1；旧 SDK 用 2019.4.31f1。",
+        },
+        force: {
+          type: "boolean",
+          description: "目标已存在时仍然创建。会先把原目录改名为 <目录>.bak-<时间戳>，不会删除任何东西。",
+        },
+        dryRun: {
+          type: "boolean",
+          description: "只检查能否创建并报告将写入什么，不落盘。",
+        },
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            text: { type: "string", required: true },
+            ok: { type: "boolean", required: true },
+            code: { type: "string" },
+            targetDir: { type: "string" },
+            backup: { type: "string" },
+            files: { type: "array", items: { type: "string" } },
+            nextCommand: { type: "string" },
+          },
+        },
+        render: (_args, value) => [{ type: "text", text: value.text }],
+      },
+      async execute(args) {
+        const options = {
+          targetDir: args?.targetDir,
+          type: args?.type,
+          unityVersion: args?.unityVersion,
+          force: args?.force === true,
+        };
+
+        let plan;
+        try {
+          plan = planProject(options);
+        } catch (error) {
+          if (error instanceof ScaffoldError) {
+            const detail = error.detail ?? {};
+            const lines = [`未创建（${error.code}）：${error.message}`];
+            if (detail.contents) lines.push(`  目标现有内容：${detail.contents}`);
+            if (detail.hint) lines.push(`  ${detail.hint}`);
+            if (detail.backupPath) lines.push(`  备份位置：${detail.backupPath}`);
+            lines.push(`  已还原原目录：${detail.backupRestored === true ? "是" : "否，见上方备份路径"}`);
+            return { text: lines.join("\n"), ok: false, code: error.code, targetDir: plan?.targetDir };
+          }
+          throw error;
+        }
+
+        if (args?.dryRun === true) {
+          return {
+            text: [
+              `[dry-run] 将创建 ${plan.type} 工程：${plan.targetDir}`,
+              `  Unity ${plan.unityVersion} / SDK ${plan.resolvedSdk} 3.x`,
+              `  目标状态：${plan.status}${plan.contents ? `（现有内容：${plan.contents}）` : ""}`,
+              "将写入：",
+              ...Object.keys(plan.files).map((f) => `  ${f}`),
+              plan.backupDir ? `将先把原目录备份到：${plan.backupDir}` : "无需备份",
+            ].join("\n"),
+            ok: true,
+            targetDir: plan.targetDir,
+            files: Object.keys(plan.files),
+          };
+        }
+
+        let result;
+        try {
+          result = applyProject(plan);
+        } catch (error) {
+          if (error instanceof ScaffoldError) {
+            const detail = error.detail ?? {};
+            const lines = [`创建失败（${error.code}）：${error.message}`];
+            if (detail.backupPath) lines.push(`  原内容仍保留在：${detail.backupPath}`);
+            if (detail.backupRestored === true) lines.push("  已把原目录还原到原位。");
+            return { text: lines.join("\n"), ok: false, code: error.code, targetDir: plan.targetDir };
+          }
+          throw error;
+        }
+
+        const nextCommand = `vrc-get resolve -p "${plan.targetDir}"`;
+        return {
+          text: summarize(plan, result),
+          ok: true,
+          targetDir: plan.targetDir,
+          backup: result.backup ?? undefined,
+          files: result.files,
+          nextCommand,
         };
       },
     }),

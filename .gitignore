@@ -63,3 +63,4 @@ preset-plugins.json
 m[0-9].txt
 rel.txt
 .probe-digest-repeat.mjs
+.probe-project-new.mjs

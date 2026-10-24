@@ -52,6 +52,28 @@ Manual 一次序列化上限 280,496 bytes，Continuous 每次约 200 bytes。�
 能站人的出生点（`VRCWorld`）、一两件可交互物（`VRCChair` 让人能坐下、`VRCMirror` 让人能看见自己）、
 一点环境音。**能进去看到东西，比功能齐全重要得多。**
 
+**工程本身你能自己建** —— 不要卡在"我建不了工程"上。用户没现成工程时，直接：
+
+```
+vrchat_kb_project_new(targetDir: "<用户给的位置>/<名字>", type: "world")
+```
+
+它写三个目录 + `ProjectVersion.txt` + 两个包清单（`Packages/manifest.json` 与 `vpm-manifest.json`），
+**不联网、不开 Unity、不装 SDK**。跑完还要一步：
+
+```
+vrc-get resolve -p "<那个工程>"
+```
+
+把 SDK 依赖装齐。之后 Unity 首次打开会补全 `ProjectSettings.asset` / `InputManager.asset`
+——那两个文件工具**故意不伪造**，别以为创建出来的工程残缺。
+
+`type` 只能是 `world` 或 `avatar`；**这两者唯一的差别是 SDK 依赖那一行**
+（`com.vrchat.worlds` vs `com.vrchat.avatars`），Unity 的 36 个依赖完全一样。
+
+⚠️ 目标已存在时它**默认拒绝并列出里面有什么**。确认要覆盖才传 `force: true`，
+那会先把原目录改名为 `<目录>.bak-<时间戳>` 而不是删除。**不要在没跟用户确认的情况下用 force。**
+
 交付后再说"我可以把它变得更像深夜/更暖/加一段能写字的地方"，让他选下一步。
 
 ### 情况二：有明确目标（"做个 8 人合作的解谜"）
@@ -282,7 +304,7 @@ credibility 分布，以及有多少 `draft` / `deprecated` 页。
 | 要做的事 | 工具 | 你能替用户做到哪一步 | 关键约束 |
 |---|---|---|---|
 | 操作 Unity 编辑器 | Unity MCP 桥（二选一，见下） | 见下 | 都剩一步要用户点 |
-| **建 / 注册新工程** | VCC 或 ALCOM（GUI） | **不到 —— 用户装** | 桌面安装器；`vrc-get` 做不到 |
+| **建 / 注册新工程** | `vrchat_kb_project_new`（本插件工具） | **能全做** | 只写骨架；SDK 靠 `vrc-get resolve` |
 | 装 / 升级 / 移除 VPM 包 | `vrc-get`（ALCOM 的 CLI 本体） | **能全做** | `winget install anatawa12.vrc-get` |
 | 下载归档 BOOTH 素材 | booth-vault-toolhub | 不到 —— 用户装 | 需要 BOOTH cookie |
 | 在 Unity 里看 diff / 暂存 / 解冲突 | unity-git-bettergui | 不到 —— 用户装 | Unity 2022.3+；系统要有 git |
@@ -301,13 +323,25 @@ vrc-get    命令行本体 ← 装包/升级/管仓库都走它，不需要 GUI�
 它们**读写同一份配置** `%LOCALAPPDATA%\VRChatCreatorCompanion`（`settings.json` 与 `Repos\`），
 所以 CLI 改完 GUI 刷新即见。
 
-**但建工程这条线不一样**：`vrc-get` **没有创建工程的命令**（只有 install / remove / migrate 这类）。
-新建工程仍然要用 VCC 或 ALCOM 的 GUI。而且按知识库的说法：
+**建工程这条线要分清两层**：
+
+- `vrc-get` CLI **没有创建工程的命令**（16 个子命令里只有 install / remove / migrate 这类）。
+- ALCOM **有**建工程能力，但那只存在于 GUI 进程内部（Tauri IPC），**没有命令行入口**。
+
+所以你要建工程，用本插件的 `vrchat_kb_project_new` —— 它写的就是 ALCOM `Blank` 模板那套
+（三个目录 + `ProjectVersion.txt` + 官方模板的两个包清单），只是把入口挪到了工具里。
+建完 SDK 还没装，跑 `vrc-get resolve` 补齐。
+
+按知识库的说法：
 
 > **[FACT]** 对于 World 项目创建，即使 InputManager 问题已修复，仍建议优先用 VCC 创建项目，
 > 然后用 ALCOM 管理包。
 
-所以分工是：**建工程 → 用户的 GUI；装包 → 你的 `vrc-get`**。
+这条守的是 2025-02 已修复的 InputManager bug，属于**保守的遗留建议**，不是硬约束。
+`vrchat_kb_project_new` 走 Blank 路径，同样不含 InputManager 预设——两者的实际差别就在这里，
+要上传发布前通常在 Unity 里补一次。
+
+分工是：**建工程 → `vrchat_kb_project_new`；装包 → `vrc-get`**。
 详见随包技能 `vrc-get-cli`。
 
 ### Unity MCP 桥：按"用户能不能配合"二选一

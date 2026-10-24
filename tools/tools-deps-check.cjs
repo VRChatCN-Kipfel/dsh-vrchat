@@ -41,8 +41,6 @@ const blocks = toolBlocks(source);
 const checks = [];
 const check = (name, ok, detail) => checks.push({ name, ok, detail });
 
-check("找到 8 个工具块", blocks.size === 8, [...blocks.keys()].join(", "));
-
 /**
  * Which data source each tool needs.
  * `corpus`   reads page bodies
@@ -50,6 +48,7 @@ check("找到 8 个工具块", blocks.size === 8, [...blocks.keys()].join(", "))
  * `runtime`  reads the live machine, no KB data at all
  * `index`    reads only page METADATA, never bodies — so it works without the
  *            corpus and must not touch `storeFor().bodyOf`
+ * `none`     touches no KB data at all and has no corpus dependency
  */
 const EXPECTED = {
   vrchat_kb: "corpus",
@@ -60,7 +59,15 @@ const EXPECTED = {
   vrchat_kb_list: "index",
   vrchat_kb_unity: "runtime",
   vrchat_kb_scan: "runtime",
+  // Writes a project skeleton to disk. It reads no page and no artifact, so the
+  // corpus guarantees above do not apply — but it must still be listed here, or a
+  // tool added later could slip in without any dependency assertion at all.
+  vrchat_kb_project_new: "none",
 };
+
+// Derived from EXPECTED, not a literal: a hardcoded count turns "a tool was added
+// without a dependency assertion" into "the count is wrong", which reads as noise.
+check("找到全部工具块", blocks.size === Object.keys(EXPECTED).length, [...blocks.keys()].join(", "));
 
 for (const [tool, needs] of Object.entries(EXPECTED)) {
   const block = blocks.get(tool);

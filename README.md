@@ -18,7 +18,7 @@ agent 不需要知道 `entities/world/udon/persistence/index.md` 存在，只需
 
 | 模式 | 触发 | 注入内容 | 估算 |
 |---|---|---|---|
-| 默认（`tier: lite`，常驻） | 任意会话 | **不注入任何 prompt 文本**，只注册 8 个工具与 `/vrchat` | 工具定义 ~2–3K tok |
+| 默认（`tier: lite`，常驻） | 任意会话 | **不注入任何 prompt 文本**，只注册 9 个工具与 `/vrchat` | 工具定义 ~2–3K tok |
 | VRChat 创作预设（`tier: preset`） | 选用 `vrchat` 预设 | 红线 + 覆盖地图 + World/Avatar/Shader 全量域块 | prefix 4.5–6.9k + suffix 2.7–3.9k tok |
 
 **注入由预设门控，工具不门控。** 常驻行（`tier: lite`）在任何会话都挂上，所以 agent 随时可以
@@ -26,9 +26,16 @@ agent 不需要知道 `entities/world/udon/persistence/index.md` 存在，只需
 
 `full` 是 `preset` 的兼容别名（行为完全相同），新配置不要再写 `full`。
 
-八个工具：`vrchat_kb`（概念）/ `_grep`（定位给行号）/ `_read`（按行读上下文）/ `_api`（是否在
+八个查库工具：`vrchat_kb`（概念）/ `_grep`（定位给行号）/ `_read`（按行读上下文）/ `_api`（是否在
 Udon 暴露）/ `_filter`（按元数据筛）/ `_list`（库概况）/ `_unity`（Unity 运行时与许可证）/
 `_scan`（产出代码违例自查）。
+
+第九个是 `_project_new`：**创建一个最小 VRChat 工程骨架**（World / Avatar）。它不查库，
+补的是「一句话需求 → 从零起工程」这一步——ALCOM 的建工程能力只在 GUI 里，`vrc-get` 没有
+创建子命令，所以此前 agent 无法自己开工程。它只写文本文件（三个目录 + `ProjectVersion.txt`
++ 两个包清单，取自上游 `project-templates`），不联网、不启动 Unity、不装 SDK；SDK 由
+`vrc-get resolve` 补齐。目标已存在时默认拒绝并列出内容，`force: true` 才覆盖（先备份为
+`<目录>.bak-<时间戳>`，不删除）。
 
 **注入在哪一块什么内容**（`docs/vrchat-kb-architecture.md` §2 详解）：
 
