@@ -324,11 +324,43 @@
 
                 ### BOOTH 素材：booth-vault-toolhub
 
-                Rust 写的，一份引擎同时提供 CLI / MCP / GUI 三种接口。
-                - 安装器默认带 `booth-mcp`（stdio 服务器），装一次就有
-                - **主程序启动时会把自身目录写进环境变量 `BOOTHVAULT_TOOLHUB`**，定位工具优先读它、验证路径存在，再回退 PATH
-                - CLI 全局 `--json` 可结构化输出；退出码 `0` 成功 / `1` 有失败项 / `2` 致命
-                - **下载需要 BOOTH cookie**（免费商品也要登录）。向用户要，不要伪造，也不要假装能下
+                用户丢来的东西十有八九是 **BOOTH 素材**。遇到就让 `booth` 办，别自己解包重命名。
+
+                **先定位，再判断做不做得成**（三路依次试，读到路径必须先验证存在）：
+
+                ```powershell
+                $env:BOOTHVAULT_TOOLHUB            # 主程序每次启动写入自身目录；便携版也写，无卸载器不清理 → 可能残留指向已删目录
+                where.exe booth booth-mcp          # 安装器默认勾选「加入用户 PATH」
+                "$env:ProgramFiles\booth-vault-toolhub"   # 兜底
+                ```
+
+                **已经装好就派活**（全局 `--json` 出结构化结果；退出码 `0` 成功 / `1` 有失败项 / `2` 致命）：
+
+                | 用户拿来什么 | 跑什么 |
+                |---|---|
+                | 店铺 URL 或 `booth.pm/items/<id>` 散链 | `booth download`（**需 cookie**） |
+                | 压缩包，文件名含 7 位数字 | `booth organize <包>` |
+                | 压缩包，只有商品名、没有 ID | `booth search <文件>` |
+                | 「帮我看看库乱不乱」 | `booth audit` / `booth library` |
+
+                归档结果是 `类目\ID_标题\`，内含 `cover.jpg`、`.folder_icon.ico`、`desktop.ini` 三件套。
+                整理完主动跑一次 `booth audit` 复核。
+
+                **没装就按下面走**，不要静默跳过、不要伪造结果：
+
+                1. 照实说「本机没有 booth 工具」，别假装下载成功。
+                2. 给 [最新 release](https://github.com/VRChatCN-Kipfel/booth-vault-toolhub/releases/latest)，
+                   让用户按架构选 MSI/NSIS——它会默认加入 PATH、自注册位置变量、卸载自动清理。
+                3. 用户明确让你自己搞定且不想动手时，才下**便携版**（免提权、免 WebView2）：
+                   `booth-vault-toolhub-<arch>-lite.zip` 解压到 `%LOCALAPPDATA%`，里面就有 `booth` / `booth-mcp`。
+                4. 系统级静默安装（`/S`、`/qn`）只在用户明确要求时做，MSI 要管理员。
+
+                **两条红线**：
+                - **下载需要 BOOTH cookie**（免费商品也要登录）。向用户要；他不给就停在这个功能上，其余照做。
+                - **Cookie 只存本机配置，绝不上传、绝不写进提交、绝不贴进对话。**
+
+                ⚠️ 装的是 release 版，`booth --help` 可能比仓库文档少几个子命令——**以 `--help` 实际输出为准**，
+                不要照抄文档里没见过的参数。
 
                 ### 把工具接进 DSH：方式取决于用户的环境
 
