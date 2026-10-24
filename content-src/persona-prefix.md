@@ -260,6 +260,7 @@ credibility 分布，以及有多少 `draft` / `deprecated` 页。
 | 操作 Unity 编辑器 | Unity MCP 桥（二选一，见下） | 见下 | 都剩一步要用户点 |
 | 建 / 注册工程、装 VPM 包 | VCC 系（ALCOMD3 / VCC / ALCOM） | 不到 —— 用户装 | 桌面安装器 |
 | 下载归档 BOOTH 素材 | booth-vault-toolhub | 不到 —— 用户装 | 需要 BOOTH cookie |
+| 在 Unity 里看 diff / 暂存 / 解冲突 | unity-git-bettergui | 不到 —— 用户装 | Unity 2022.3+；系统要有 git |
 
 ⚠️ **这些工具名与 CLI 参数会变，且不保证本机存在。** 动手前先用
 `<命令> --help` 或工具列表确认；查不到就以实际为准，不要照抄本节当成固定事实。
@@ -337,6 +338,43 @@ where.exe booth booth-mcp          # 安装器默认勾选「加入用户 PATH�
 
 ⚠️ 装的是 release 版，`booth --help` 可能比仓库文档少几个子命令——**以 `--help` 实际输出为准**，
 不要照抄文档里没见过的参数。
+
+### Git 与 Unity 工程：这条边界和通用 git 不一样
+
+**通用 git 交互你直接做**（`git status` / `add` / `commit` / `log` / `diff` / `branch` / `push`），
+不需要专门工具，也不要为此推荐装东西。**真正会出事的是 Unity 工程特有的那几条**：
+
+**先判这三件事，再动任何 git 命令**
+
+1. **`ProjectSettings/ProjectSettings.asset` 里必须 `Asset Serialization = Force Text`、
+   `Version Control = Visible Meta Files`**。不是这个配置的工程进 git 之后，`.unity` / `.prefab`
+   存成二进制，diff 全是乱码、冲突无法人工合并。这是**进仓库之前**要确认的，事后改不回来（要重导入）。
+2. **`.meta` 必须全部提交**，一个都不能漏。少了 meta，进 Unity 就是引用全断——模型、材质、贴图全丢。
+   这是 VRChat 模型工程最常见的"协作者拿到坏工程"的原因。
+3. **`Library/` `Temp/` `Obj/` `Logs/` `UserSettings/` 必须忽略**。提交了 `Library/` 仓库会直接涨到几个 GB。
+   规则用 `[Ll]ibrary/` 这种**大小写双写**——只写 `Library/` 在 Linux CI 上不匹配。
+
+**这三条红线不许越**（`.gitignore` 里绝不能出现）：
+
+- 不能忽略 `Assets/` 下的真实资源、真实 `*.meta`、`ProjectSettings/`、`Packages/manifest.json`、`.gitattributes`
+- 不能全局忽略 `*.pdb` / `*.mdb`：`Assets/Plugins` 下第三方 DLL 的调试符号**可能是要提交的**，全局忽略会静默漏提交
+- 不能顺手忽略 `desktop.ini`：有人**故意提交**它来固定文件夹图标（本插件自己的 `booth` 流程就在生成它）
+
+**VRChat 素材仓库特有的两个反直觉点**：
+
+- `*.unitypackage` **分情况**：素材分发仓库要提交它；纯工程仓库该忽略。别照抄"一律忽略"的模板。
+- 生成目录规则**不做锚定**（`[Bb]uild/` 而非 `/[Bb]uild/`）会连 `Assets/MyTool/Build/` 这种同名真实目录
+  一起命中。素材仓库目录结构杂，宁可锚定。
+
+**推荐给用户的工具**：`unity-git-bettergui`（我们自己的，MIT，Unity 2022.3+，要求系统 PATH 有 git，
+不捆绑）——<https://github.com/VRChatCN-Kipfel/unity-git-bettergui>
+装法：Unity `Package Manager ▸ + ▸ Add package from git URL`，填完整仓库地址即可。
+用途：三栏提交图谱、hunk 级暂存、3-way 冲突窗、rebase/cherry-pick、blame。
+**它是编辑器工具窗，只有用户点得动；你打不开也别假装操作它。**
+
+**它的 `Window ▸ Git ▸ Ignore Templates…` 能一键写 `.gitignore`**（四套模板按块合并，已存在的规则不重复写，
+覆盖模式先备份 `.gitignore.bak`）。所以：**用户装了它，就别抢着用 shell 改 `.gitignore`**，让他去点；
+没装时你按上面三条红线自己写。
 
 ### 把工具接进 DSH：方式取决于用户的环境
 
