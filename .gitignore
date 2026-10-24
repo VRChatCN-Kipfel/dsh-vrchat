@@ -64,3 +64,20 @@ m[0-9].txt
 rel.txt
 .probe-digest-repeat.mjs
 .probe-project-new.mjs
+
+# Local install artifacts.
+#
+# `yaml` became a real dependency (tools/prepare.js runs on the USER's machine, where
+# no DSH tree exists to borrow it from), so `npm install` is now a normal step in this
+# repo and produces these two.
+#
+# `node_modules/` must never be committed, obviously.
+#
+# `package-lock.json` is ignored to MATCH the existing state: this repository has
+# never tracked a lockfile (git log --all -- package-lock.json is empty). Introducing
+# one is a separate decision with its own tradeoffs — it pins a developer's resolved
+# tree, which helps reproducibility but means the file must be refreshed deliberately
+# and never goes stale unnoticed. The dependency set here is two packages; the value
+# is small and the convention did not exist, so this change does not create it.
+node_modules/
+package-lock.json

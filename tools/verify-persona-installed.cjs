@@ -1,7 +1,7 @@
 /** Validate the INSTALLED generation's patch and persona, using the real parser. */
 const fs = require("node:fs");
 const path = require("node:path");
-const { createRequire } = require("node:module");
+const { loadFromHost } = require("./lib-host-require.cjs");
 const generationsLib = require("./lib-generation.cjs");
 
 const target = generationsLib.newestGeneration("dsh-vrchat+");
@@ -12,7 +12,7 @@ if (target === null) {
 const pkgRoot = path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat");
 console.log(`代: ${target}`);
 
-const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
+const requireFromProfile = loadFromHost;
 const YAML = requireFromProfile("yaml");
 const { installedPatch, locateRows } = require("./lib-patch-rows.cjs");
 const patch = installedPatch(pkgRoot);

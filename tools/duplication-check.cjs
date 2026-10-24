@@ -16,11 +16,11 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const { createRequire } = require("node:module");
+const { loadFromHost } = require("./lib-host-require.cjs");
 const { pathToFileURL } = require("node:url");
 
 const root = path.join(__dirname, "..");
-const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
+const requireFromProfile = loadFromHost;
 const YAML = requireFromProfile("yaml");
 
 /**

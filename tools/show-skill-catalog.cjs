@@ -19,10 +19,9 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createRequire } = require("node:module");
-
+const { loadFromHost } = require("./lib-host-require.cjs");
 const ROOT = path.join(__dirname, "..");
-const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
+const requireFromProfile = loadFromHost;
 const YAML = requireFromProfile("yaml");
 const jsTag = { tag: "tag:yaml.org,2002:js", resolve: (value) => value, identify: () => false };
 

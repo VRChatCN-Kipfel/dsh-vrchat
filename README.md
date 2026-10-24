@@ -13,21 +13,48 @@
 
 ## 30 秒上手
 
-```bash
-# 1. 装进当前 profile（Web GUI 也可以从插件面板装）
-dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
+### 先确认前置条件
 
-# 2. 重启 DSH Desktop
+安装过程会**从 GitHub 拉三个上游仓库**（语料与两套技能），所以需要：
+
+| 需要 | 为什么 |
+|---|---|
+| **git 在 PATH 上** | 三个上游仓库要 clone；没有 git 装不上 |
+| **能访问 github.com** | 同上；离线环境装不了，会明确报错而不是装个残缺的 |
+| **Node.js 18+** | 安装钩子要跑构建（DSH 自带 node，通常无需另装） |
+
+装的时候会花 **40 秒到 1 分钟**，主要时间在拉语料。这不是卡住。
+
+### 装
+
+```bash
+dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
 ```
 
-然后在会话里**选用 `vrchat` 预设**。没选预设时插件也在工作，只是不注入专家人设：
+Web GUI 也可以从**插件面板**装。装完**重启 DSH Desktop**。
 
-| 你选了什么 | 发生什么 |
+### 启用专家人设
+
+插件装好后自动生效（9 个工具随时可用），但要激活「VRChat 专家」这套人设，需要在会话里
+把预设切到 **「VRChat 创作模式」** —— 在会话顶部的预设选择器里选，或新建会话时选它。
+
+| 你的状态 | 能力 |
 |---|---|
-| 什么都不选（`tier: lite`） | 9 个工具可用，**不占用任何 prompt 字符** |
-| 选 `vrchat` 预设（`tier: preset`） | 额外注入红线、覆盖地图、World/Avatar/Shader 全量域块（约 24,800 字符） |
+| 没选预设 | 9 个工具可用，**不占用任何 prompt 字符** |
+| 选了「VRChat 创作模式」 | 额外注入红线、覆盖地图、World/Avatar/Shader 全量域块（约 25,500 字符） |
 
-试一句：
+### 装完自检
+
+不确定装好没有，在会话里输入：
+
+```
+/vrchat stats
+```
+
+它会打印本会话实际注入了多少字符、知识库版本、语料页数。**能看到这些数字就是装好了。**
+如果它报「data/ 不完整」，说明安装钩子没跑成功，先卸载重装（见下方排查）。
+
+### 试一句
 
 > 我在 Blender 里改了形态键，Unity 里模型不显示
 
@@ -45,14 +72,14 @@ dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
 | `vrchat_kb_grep` | 知道确切符号，要行号定位 |
 | `vrchat_kb_read` | 拿到行号后读上下文 |
 | `vrchat_kb_api` | **这个 API 在 Udon 里到底能不能用**（三态：已暴露 / 类型已知但未列 / 无数据） |
-| `vrchat_kb_filter` | 按 `type` / `category` / `confidence` / `tags` 筛页 |
+| `vrchat_kb_filter` | 按 `type` / `category` / `confidence` / **`status`** / `tags` 筛页 |
 | `vrchat_kb_list` | 看库的整体构成 |
 
 ### 查你的机器与代码
 
 | 工具 | 什么时候用 |
 |---|---|
-| `vrchat_kb_unity` | Unity 装没装、许可证还剩几天、有没有 MCP 桥在跑（**只读**） |
+| `vrchat_kb_unity` | **正在运行的** Unity / Unity Hub / MCP 桥进程、以及从它们启动参数里读到的许可证状态（**只读**） |
 | `vrchat_kb_scan` | 写完 `.cs` / `.shader` 后扫一遍硬约束违例（只报告，不阻断） |
 
 ### 动手
@@ -68,9 +95,33 @@ dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
 vrc-get resolve -p "<刚建的工程>"
 ```
 
+参数（都有兜底，沿用你的默认判断）：
+
+| 参数 | 说明 |
+|---|---|
+| `targetDir` | 必填。父目录必须已存在 |
+| `type` | 必填。`world` 或 `avatar` |
+| `unityVersion` | 默认 `2022.3.22f1`（SDK 3.5.0+ 绑定） |
+| `force` | 目标已存在时仍要创建。**会先改名为 `<目录>.bak-<时间戳>`，不删除** |
+| `dryRun` | 只报告将写什么，不落盘 |
+
+⚠️ `force` 的语义是**备份而不是覆盖**：原目录会被改名留着，你可以随时改回去。
+
 > ALCOM 的「建工程」只存在于 GUI 进程内部，`vrc-get` 没有创建子命令 ——
 > 所以此前 agent 无法自己开工程。这个工具补的就是这一步。
 > 它**不伪造** `ProjectSettings.asset` / `InputManager.asset`（Unity 首次打开时生成）。
+
+### 斜杠命令：给人看的自查入口
+
+模型不会看到这些输出，它们是**你自己检查插件状态**用的：
+
+| 命令 | 做什么 |
+|---|---|
+| `/vrchat stats` | 本会话实际注入了多少字符、知识库版本与构建时间、语料页数、本会话已问过哪些问题 |
+| `/vrchat stale` | 知识库构建了多久，提醒是否需要重建 |
+| `/vrchat scan <路径>` | 提示模型去扫这个路径的 `.cs` / `.shader`（斜杠命令本身不读文件） |
+
+装完不确定成不成，`/vrchat stats` 是第一站 —— 能看到数字就说明插件在工作。
 
 ---
 
@@ -87,9 +138,15 @@ vrc-get resolve -p "<刚建的工程>"
 | `vrc-get-cli` | VPM 包管理命令行（ALCOM 的底层引擎） |
 | — | 外部技能推荐表：`vendor/vrchat-world-codex-skills/docs/RECOMMENDED_OPEN_SOURCE_SKILLS.md` |
 
-技能目录里每条描述是模型**唯一**的路由依据。本预设把它从默认 500 字符调到 1024，
-因为编辑器技能的描述有 795 字符，最后一句正是「Do not use for VRChat World or Udon projects」——
-在 500 处被砍掉，它就会去抢 World 请求。
+技能目录里每条描述是模型**唯一**的路由依据。本预设把它从默认 **500** 字符调到 **1024**。
+
+编辑器技能（`inspect-vrchat-avatar-project`）的描述共 **795** 字符，最后的排除句
+「Do not use for VRChat World or Udon projects」落在第 **750** 字符处。默认 500 时，
+截断点卡在中段的工具清单上（`…inspect parameters, Animator layers, FaceEmo, l`）——
+**被砍掉的不只是那一句，还有它前面半段 provider 名录**。留下的前半段里全是
+Animator、参数、预览、构建这类通用 Unity 词，于是它会去抢 World 请求。
+
+调到 1024 之后整句保留，它就能明确说出「不适用于 World」。
 
 ---
 
@@ -120,7 +177,11 @@ vrc-get resolve -p "<刚建的工程>"
 | `api-table.json` | SDK 3.10.3 已暴露清单（80 类型 / 1253 成员） |
 | `keyword-routes.json` | 话题→目录路由表（20 条） |
 
-`data/` 只放**能从语料机械推导的东西**；正文永远留在 submodule 里。
+`data/` 里是**两类**东西，别混：`t0-core` / `t1-*` / `domain-map` 是**手写策展**
+（源在 `content-src/`，人改那里，构建时只做格式转换）；`index.json` / `api-table.json` /
+`keyword-routes.json` / `manifest.json` 是**从语料机械推导**的。
+
+**正文永远留在 submodule 里**，不进 `data/` —— 查询时按需打开命中的那几页。
 
 ---
 

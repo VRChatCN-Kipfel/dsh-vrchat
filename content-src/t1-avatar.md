@@ -31,6 +31,19 @@ Base → Additive → Gesture → Action → FX（最后，优先级最高）
 ☆ Very Poor 评级未来可能被完全删除
 ```
 
+**Avatar 端在 Quest 上按"完全禁用"处理的组件**（不是"能用但性能差"，是根本不允许）：
+
+```
+✗ Cameras              ← 这条最容易误判，见下方专门说明
+✗ Cloth
+✗ Lights
+✗ Dynamic Bones（旧版，非 PhysBone）
+✗ 屏幕后处理（Post-Processing）
+```
+
+World 端是另一回事：相机、灯光在 World 里**可用**，只是要注意性能。两边规则不同，
+不要拿 World 的结论套到 Avatar 上。
+
 ## Expression 参数
 
 **配额**：synced 合计 **256 bits**（含 unsynced 合计 8192 个）。超过 256 会加载失败；第三方工具通常需要预留 8–16 bit 缓冲。
@@ -63,8 +76,15 @@ Animator ↔ Expression 类型转换：
 
 ## Avatar 相机已知问题（官方 tracked，未解决）
 
+> **⚠️ 这一节只适用于 PC 端的 Avatar 相机工具，别拿它推断 Quest 能不能用。**
+> Quest 上 Avatar 端相机是**完全禁用**的，不是"有这些 bug 所以体验差"。如果你手上是
+> Quest 项目，正确结论是「不能用」——这一节里的 bug 根本轮不到发生。
+
 ```
 1. Avatar Camera 不响应 DepthTextureMode → DoF 与 shader 行为异常
 2. DoF 噪声无法关闭 → 视频录制与后期降噪困难
 3. Avatar 相机使用 stale depth texture → 深度相关效果失效
 ```
+
+这些是**PC 上仍然能做、但要注意的**问题。典型用途是 VirtualLens2 / VRCLens 这类
+玩家本地相机工具（见上表）。World 端的相机是另一套规则——World 相机在 Quest 上可用。

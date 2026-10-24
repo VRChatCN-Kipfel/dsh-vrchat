@@ -26,8 +26,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const { createRequire } = require("node:module");
-
+const { loadFromHost } = require("./lib-host-require.cjs");
 const ROOT = path.join(__dirname, "..");
 
 /**
@@ -37,7 +36,7 @@ const ROOT = path.join(__dirname, "..");
  * config, forget the checker, and a description that gets truncated still passes.
  */
 function configuredCatalogLimit() {
-  const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
+  const requireFromProfile = loadFromHost;
   const YAML = requireFromProfile("yaml");
   // `!!js` is an application tag. Parsing without it resolves to a plain string and
   // emits a warning per occurrence, which turns a clean check into four lines of

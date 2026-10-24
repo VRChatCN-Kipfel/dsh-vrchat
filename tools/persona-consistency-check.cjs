@@ -19,8 +19,39 @@ const path = require("node:path");
 const { createRequire } = require("node:module");
 
 const ROOT = path.join(__dirname, "..");
-const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
-const YAML = requireFromProfile("yaml");
+
+/**
+ * Resolve `yaml` without depending on DSH_PROFILE_DIR.
+ *
+ * The old form was `createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"))`.
+ * When the variable is unset that becomes the RELATIVE path `./noop.js`, which
+ * `createRequire` rejects outright:
+ *
+ *     TypeError: The argument 'filename' must be a file URL object, file URL string,
+ *     or absolute path string.
+ *
+ * Same defect as `build-preset-plugins.mjs`, and it only stayed hidden because every
+ * run here happened to export the variable. `yaml` is a declared dependency of this
+ * package, so the package's own resolution is tried first; the DSH tree remains as a
+ * fallback for a developer running from a source checkout with no `npm install`.
+ */
+function loadYaml() {
+  try {
+    return require("yaml");
+  } catch {
+    /* fall through to the host tree */
+  }
+  const profile = process.env.DSH_PROFILE_DIR;
+  if (typeof profile === "string" && profile.length > 0) {
+    const absolute = path.resolve(profile);
+    if (fs.existsSync(path.join(absolute, "node_modules"))) {
+      return createRequire(path.join(absolute, "noop.js"))("yaml");
+    }
+  }
+  throw new Error("找不到 yaml：本包已声明该依赖，请先 npm install；或设置 DSH_PROFILE_DIR。");
+}
+
+const YAML = loadYaml();
 
 /** The `!!js` tag appears in the patch; parse it instead of warning four times. */
 const jsTag = { tag: "tag:yaml.org,2002:js", resolve: (value) => value, identify: () => false };

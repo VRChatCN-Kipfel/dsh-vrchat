@@ -122,6 +122,17 @@ const ledgerEntrySchema = zod.object({
   turn: zod.number(),
   generation: zod.number(),
   at: zod.number(),
+  /**
+   * How many times this query has been asked in scope.
+   *
+   * MUST be listed here. zod v4 strips unknown keys by default, so an entry restored
+   * from a checkpoint silently lost `calls` and `(entry.calls ?? 1) >= 2` then never
+   * fired — the repeat notice stopped appearing after any restore. That failed in the
+   * SAFE direction (a missed hint, not a false one), which is why it went unnoticed.
+   * Optional in the schema so entries written before this field still parse; the
+   * reader treats a missing value as 1.
+   */
+  calls: zod.number().optional(),
 });
 
 const ledgerStateSchema = zod.object({

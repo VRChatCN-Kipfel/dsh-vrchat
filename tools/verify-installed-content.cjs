@@ -9,9 +9,8 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
-const { createRequire } = require("node:module");
-
-const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
+const { loadFromHost } = require("./lib-host-require.cjs");
+const requireFromProfile = loadFromHost;
 const YAML = requireFromProfile("yaml");
 
 const generations = require("./lib-generation.cjs");
