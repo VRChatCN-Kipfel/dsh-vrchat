@@ -65,10 +65,49 @@ if (Array.isArray(patch)) {
   check("不再提 vrchat_kb_connect", !/vrchat_kb_connect/.test(prefix));
 }
 
-// ── manifest no longer declares yaml ────────────────────────────────────
+// ── the RUNTIME must not need yaml; the INSTALL does ─────────────────────
+//
+// This used to assert `dependencies.yaml === undefined`, i.e. "yaml is not a
+// dependency". The intent behind it was that the SHIPPED PLUGIN reads no YAML: it
+// works off a pre-rendered patch, not a parsed one. Checking the dependency LIST was
+// only ever a proxy for that intent, and it has stopped being a valid one.
+//
+// `yaml` is now a declared dependency on purpose. `tools/prepare.js` runs during
+// `npm install` on the USER's machine and rebuilds `data/`; that machine has no DSH
+// tree to borrow `yaml` from, so the dependency is what makes installation possible
+// at all. Keeping the old assertion would force a choice between installing and
+// passing the check.
+//
+// So this now tests the REAL property instead of the proxy: no runtime file may
+// import yaml. That still holds, and it will fail if someone ever makes index.js or
+// lib/ parse YAML at load time — which is the thing the original check cared about.
 const pkg = JSON.parse(fs.readFileSync(path.join(pkgRoot, "package.json"), "utf8"));
-check("未声明 yaml 依赖", pkg.dependencies?.yaml === undefined, JSON.stringify(pkg.dependencies ?? {}));
-check("声明了 zod 依赖", pkg.dependencies?.zod !== undefined);
+check("声明了 zod 依赖", pkg.dependencies?.zod !== undefined, JSON.stringify(pkg.dependencies ?? {}));
+check(
+  "yaml 作为依赖存在（prepare 在用户机器上需要它）",
+  pkg.dependencies?.yaml !== undefined,
+  JSON.stringify(pkg.dependencies ?? {}),
+);
+
+const libDir = path.join(pkgRoot, "lib");
+const runtimeFiles = ["index.js", "client.js"]
+  .map((rel) => path.join(pkgRoot, rel))
+  .concat(
+    fs.existsSync(libDir)
+      ? fs
+          .readdirSync(libDir)
+          .filter((name) => name.endsWith(".js"))
+          .map((name) => path.join(libDir, name))
+      : [],
+  );
+const yamlImporters = runtimeFiles.filter((file) =>
+  /require\(["']yaml["']\)|from\s+["']yaml["']/.test(fs.readFileSync(file, "utf8")),
+);
+check(
+  "运行时文件不导入 yaml（yaml 只服务构建与安装）",
+  yamlImporters.length === 0,
+  yamlImporters.map((f) => path.basename(f)).join(", ") || "干净的",
+);
 
 let failed = 0;
 for (const item of checks) {
