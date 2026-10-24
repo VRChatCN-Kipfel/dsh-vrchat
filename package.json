@@ -63,7 +63,10 @@
     "VRChat-Agent-Creator-Library",
     "vendor/vrchat-world-codex-skills",
     "vendor/vrchat-editor-skill",
-    "vendor/vrc-get-cli"
+    "vendor/vrc-get-cli",
+    "tools/prepare.js",
+    "tools/build-knowledge.mjs",
+    "tools/patch-parse.cjs"
   ],
   "dsh": {
     "bundle": {
@@ -80,5 +83,8 @@
   "license": "MIT",
   "dependencies": {
     "zod": "^4.4.3"
+  },
+  "scripts": {
+    "prepare": "node tools/prepare.js"
   }
 }
