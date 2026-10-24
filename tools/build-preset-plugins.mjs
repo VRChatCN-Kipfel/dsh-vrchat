@@ -129,7 +129,52 @@ function findStandardPatch() {
 const STANDARD = findStandardPatch();
 console.log(`standard 预设: ${STANDARD}`);
 
-const requireFromProfile = createRequire(join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
+/**
+ * `require` rooted at the HOST's node_modules, so `yaml` resolves out of the DSH
+ * installation rather than this package.
+ *
+ * The anchor is the preset path we already found, not `DSH_PROFILE_DIR`: that env
+ * var is an accident of the developer's shell and is ABSENT in the environment this
+ * script actually has to work in — `npm install` runs `tools/prepare.js` on a user's
+ * machine, where nothing sets it. With it unset the old expression fell back to
+ * `join(".", "noop.js")` = the relative path `noop.js`, and `createRequire` rejected
+ * it outright:
+ *
+ *     TypeError: The argument 'filename' must be a file URL object, file URL string,
+ *     or absolute path string. Received 'noop.js'
+ *
+ * That failure never appeared locally because every build here ran with the variable
+ * set. Deriving from `STANDARD` removes the env dependency entirely: it is an
+ * absolute path inside the same installation, four directories below its root:
+ *
+ *     <root>/resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml
+ *     ^1      ^2          ^3                 ^4
+ */
+function hostRequireFrom(presetPath) {
+  let dir = dirname(presetPath);
+  // Walk up until a `node_modules` directory is visible, so the anchor does not
+  // depend on the preset living at a fixed depth inside the installation.
+  for (let depth = 0; depth < 8; depth++) {
+    const hostModules = join(dir, "node_modules");
+    if (existsSync(hostModules)) return createRequire(join(hostModules, "noop.js"));
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Last resort: the developer's profile, which is where it used to come from.
+  const fallback = process.env.DSH_PROFILE_DIR;
+  if (typeof fallback === "string" && fallback.length > 0) {
+    const absolute = resolve(fallback);
+    if (existsSync(join(absolute, "node_modules"))) {
+      return createRequire(join(absolute, "noop.js"));
+    }
+  }
+  throw new Error(
+    `找不到 DSH 的 node_modules（用来解析 yaml）：从 ${presetPath} 向上 8 层都没有 node_modules。`,
+  );
+}
+
+const requireFromProfile = hostRequireFrom(STANDARD);
 const YAML = requireFromProfile("yaml");
 
 /** The `!!js` tag the shipped file uses for platform conditionals. */
