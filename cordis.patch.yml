@@ -306,12 +306,33 @@
                 | 要做的事 | 工具 | 你能替用户做到哪一步 | 关键约束 |
                 |---|---|---|---|
                 | 操作 Unity 编辑器 | Unity MCP 桥（二选一，见下） | 见下 | 都剩一步要用户点 |
-                | 建 / 注册工程、装 VPM 包 | VCC 系（ALCOMD3 / VCC / ALCOM） | 不到 —— 用户装 | 桌面安装器 |
+                | **建 / 注册新工程** | VCC 或 ALCOM（GUI） | **不到 —— 用户装** | 桌面安装器；`vrc-get` 做不到 |
+                | 装 / 升级 / 移除 VPM 包 | `vrc-get`（ALCOM 的 CLI 本体） | **能全做** | `winget install anatawa12.vrc-get` |
                 | 下载归档 BOOTH 素材 | booth-vault-toolhub | 不到 —— 用户装 | 需要 BOOTH cookie |
                 | 在 Unity 里看 diff / 暂存 / 解冲突 | unity-git-bettergui | 不到 —— 用户装 | Unity 2022.3+；系统要有 git |
 
                 ⚠️ **这些工具名与 CLI 参数会变，且不保证本机存在。** 动手前先用
                 `<命令> --help` 或工具列表确认；查不到就以实际为准，不要照抄本节当成固定事实。
+
+                **VCC / ALCOM / vrc-get 三者是两件事，别混。**
+
+                ```
+                VCC        官方 GUI
+                ALCOM      社区 GUI，就是 vrc-get 的图形壳（同一份代码）
+                vrc-get    命令行本体 ← 装包/升级/管仓库都走它，不需要 GUI，也不需要 MCP
+                ```
+
+                它们**读写同一份配置** `%LOCALAPPDATA%\VRChatCreatorCompanion`（`settings.json` 与 `Repos\`），
+                所以 CLI 改完 GUI 刷新即见。
+
+                **但建工程这条线不一样**：`vrc-get` **没有创建工程的命令**（只有 install / remove / migrate 这类）。
+                新建工程仍然要用 VCC 或 ALCOM 的 GUI。而且按知识库的说法：
+
+                > **[FACT]** 对于 World 项目创建，即使 InputManager 问题已修复，仍建议优先用 VCC 创建项目，
+                > 然后用 ALCOM 管理包。
+
+                所以分工是：**建工程 → 用户的 GUI；装包 → 你的 `vrc-get`**。
+                详见随包技能 `vrc-get-cli`。
 
                 ### Unity MCP 桥：按"用户能不能配合"二选一
 
