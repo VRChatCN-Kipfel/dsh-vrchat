@@ -139,7 +139,11 @@ for (const rel of EDITOR_CANDIDATES) {
 
 check("World 根下四个技能全部找到", WORLDS_CANDIDATES.every((rel) => entryOf(WORLDS, rel) !== null), WORLDS_CANDIDATES.join(", "));
 check("编辑器根下技能找到", EDITOR_CANDIDATES.every((rel) => entryOf(EDITOR, rel) !== null), EDITOR_CANDIDATES.join(", "));
-check("技能总数是 5", names.length === 5, names.join(", "));
+// 5 = the five skill files we ship in the two vendored roots. It is deliberately NOT
+// the catalogue total: the provider keeps its documented `includeDefaultRoots`
+// default, so a live session also lists whatever the user has in ~/.agents/skills,
+// and the count there is a property of the machine, not of this repo.
+check("随包技能总数是 5", names.length === 5, names.join(", "));
 
 // The two roots must not collide: a duplicate name is dropped by first-wins, so the
 // catalogue would silently show four rows and the fifth file would never load.

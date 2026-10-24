@@ -811,7 +811,6 @@
             name: "@deepseek-ai/dsh-skill-filesystem"
             config:
               providerName: vrchat-skills
-              includeDefaultRoots: false
               customSkillDirs:
                 - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))
                 - !!js process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-editor-skill/', baseUrl))

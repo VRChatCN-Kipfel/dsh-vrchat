@@ -208,14 +208,22 @@ plugins.push({
   name: "@deepseek-ai/dsh-skill-filesystem",
   config: {
     providerName: "vrchat-skills",
-    // This instance exists ONLY for the two vendored roots. Without this line it
-    // keeps the default `includeDefaultRoots: true`, so it also scans
-    // ~/.agents/skills, DSH_HOME/skills and the project roots — which the
-    // `skill-filesystem` row from `standard` already does. Both providers then
-    // return the same user skills, the registry drops the duplicates with a
-    // "higher-priority skill already exists" warning, and every such scan pays
-    // twice the IO for an identical answer.
-    includeDefaultRoots: false,
+    // `includeDefaultRoots` is deliberately NOT set: this row keeps the documented
+    // default (`true`), so it scans ~/.agents/skills / DSH_HOME/skills / project
+    // roots on top of the two vendored roots below.
+    //
+    // It used to be pinned to `false` to avoid a second scan: the `skill-filesystem`
+    // row above already covers the default roots, so both providers return the same
+    // user skills and the registry drops the duplicates by name ("higher-priority
+    // skill already exists"). That saving bought nothing and cost something real —
+    // a config that no longer matches the documented default, in the one row whose
+    // job is to make skills reachable. The overlap is silent by design: duplicates
+    // are resolved first-wins, never double-listed, never double-loaded.
+    //
+    // Keeping the default is also what lets a skill the AGENT installs mid-session
+    // (e.g. `npx skills add <repo> --skill <name>`, booth-vault-toolhub's own
+    // supported entry) show up without touching this file: the provider re-scans
+    // the default roots, so the next catalogue read sees it.
     customSkillDirs: [
       { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-world-codex-skills/', baseUrl))" },
       { __JS__: "process.getBuiltinModule('node:url').fileURLToPath(new URL('vendor/vrchat-editor-skill/', baseUrl))" },
