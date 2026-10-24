@@ -44,4 +44,16 @@ data/
 preset-plugins.json
 
 # Validation/scratch files
+#
+# The `.mjs` modules here are STUBBED COPIES of index.js: several checks rewrite
+# its Harness-only imports (schemastery, zod, dsh-tools) so `apply()` can run
+# outside a profile. Each copy is ~44 KB and is rewritten on every run.
+#
+# They are not deleted after use because `fs.rmSync` crashes Node 24.9.0 on Windows
+# with 0xC0000409 — a __fastfail that bypasses every JS-level handler, so a cleanup
+# call turns a passing check into a silent exit-1 that looks like a failure.
 .index-check.mjs
+.duplication-section.mjs
+.probe-command.mjs
+.probe-tmp.mjs
+.probe-stats.mjs

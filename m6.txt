@@ -1,0 +1,10 @@
+chore: the stubbed index.js copies are scratch, not source
+
+`git add -A` picked up three .mjs files that are stubbed COPIES of index.js,
+written by the checks that need to run apply() outside a profile. Each is ~44 KB
+and is rewritten on every run, so committing one would be committing a snapshot of
+index.js that silently goes stale.
+
+They are ignored rather than deleted after use because `fs.rmSync` crashes Node
+24.9.0 on Windows with 0xC0000409 — a __fastfail that bypasses every JS-level
+handler, turning a passing check into a silent exit-1 that reads as a failure.
