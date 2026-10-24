@@ -11,7 +11,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
-const REAL_PROJECT = "E:\\Users\\30885\\gitui-merge-fixture";
+// A project path used ONLY as fixture data for the parser. It is never opened, so
+// using a neutral placeholder keeps the test honest and keeps a real user name out
+// of a public repository.
+const REAL_PROJECT = "E:\\projects\\gitui-merge-fixture";
 
 async function main() {
   const mod = await import(pathToFileURL(path.join(__dirname, "..", "lib", "unity-status.js")).href);
@@ -45,9 +48,9 @@ async function main() {
   const doubled = mod.classifyProcess({
     pid: 101,
     name: "Unity Hub.exe",
-    commandLine: '"D:\\Program Files\\Unity Hub\\Unity Hub.exe" "-projectPath" "E:\\\\Users\\\\30885\\\\gitui"',
+    commandLine: '"D:\\Program Files\\Unity Hub\\Unity Hub.exe" "-projectPath" "E:\\\\projects\\\\gitui"',
   });
-  check("双反斜杠被归一", doubled?.projectPath === "E:/Users/30885/gitui", String(doubled?.projectPath));
+  check("双反斜杠被归一", doubled?.projectPath === "E:/projects/gitui", String(doubled?.projectPath));
   check("归一后不含双分隔符", !/\\\\|\\\/|\/\//.test(doubled?.projectPath ?? "x"), String(doubled?.projectPath));
 
   // A UNC share keeps its leading double backslash: collapsing it would change
@@ -142,6 +145,16 @@ async function main() {
   check("0 字节视为无 PID", mod.decodeLockfilePid(new Uint8Array(0)) === null);
   check("4 字节 0 视为无 PID", mod.decodeLockfilePid(new Uint8Array([0, 0, 0, 0])) === null);
 
+  // The lockfile decoder is the interesting part, and it must be exercised on EVERY
+  // machine. The three checks above build their bytes inline for exactly that reason.
+  // What follows covers the one case they do not: a real file that carries trailing
+  // bytes. Earlier this block read a real project's `Temp/UnityLockfile` behind an
+  // `existsSync` guard, so on any machine without that project — and always, once the
+  // path stopped naming one — the whole thing silently vanished.
+  const longer = new Uint8Array([0x39, 0x30, 0x00, 0x00, 0xff, 0xff, 0xaa]);
+  check("更长的 lockfile 仍只读前 4 字节", mod.decodeLockfilePid(longer) === 12345);
+
+  // Opportunistic extra only: never assert on a machine-specific path.
   const realLock = path.join(REAL_PROJECT, "Temp", "UnityLockfile");
   if (fs.existsSync(realLock)) {
     const bytes = new Uint8Array(fs.readFileSync(realLock));

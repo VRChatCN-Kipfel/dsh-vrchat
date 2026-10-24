@@ -129,7 +129,7 @@
 ## 6. 包布局（当前实际）
 
 ```
-D:\新建文件夹 (2)\
+dsh-vrchat/                                ← 插件仓库根
 ├── VRChat-Agent-Creator-Library/          ← submodule：语料本体，只读
 ├── vendor/
 │   ├── vrchat-world-codex-skills/         ← submodule：技能包（入口 + 3 子技能）
