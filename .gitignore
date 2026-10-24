@@ -57,3 +57,8 @@ preset-plugins.json
 .probe-command.mjs
 .probe-tmp.mjs
 .probe-stats.mjs
+
+# Commit-message scratch files. A message is passed with `git commit -F <file>`,
+# and `git add -A` picks it up before the commit reads it — which happened twice.
+m[0-9].txt
+rel.txt
