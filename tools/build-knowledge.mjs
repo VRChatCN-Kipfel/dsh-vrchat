@@ -503,16 +503,29 @@ async function main() {
         { chars: text.length, ...estimateTokens(text) },
       ]),
     ),
-    presetPayload: {
-      // Preset mode registers the SAME section name as the global row, so it
-      // shadows it completely and must therefore carry T0 itself.
-      includes: ["t0-core", "domain-map", "t1-world", "t1-avatar", "t1-shader"],
-      estimatedTokensLow: ["t0-core", "domain-map", "t1-world", "t1-avatar", "t1-shader"]
-        .map((key) => estimateTokens(loaded[key]).tokensLow)
-        .reduce((a, b) => a + b, 0),
-      estimatedTokensHigh: ["t0-core", "domain-map", "t1-world", "t1-avatar", "t1-shader"]
-        .map((key) => estimateTokens(loaded[key]).tokensHigh)
-        .reduce((a, b) => a + b, 0),
+    /**
+     * What the PRESET actually injects, by its three real parts.
+     *
+     * The old field was called `presetPayload` and summed five blocks — but those
+     * five blocks ARE the suffix (`suffix = heading + t0 + always-load`, and
+     * `always-load = domain-map + t1-*`). The prefix, which is the single largest
+     * piece at ~10.8 KB, was not included. So the name said "preset payload" while
+     * the number measured roughly half of it, and `stats` labelled it
+     * "prefix + suffix" on top of that.
+     *
+     * Now each part is priced separately from the string that is really injected,
+     * so no arithmetic over blocks can reintroduce the gap.
+     */
+    presetInjection: {
+      parts: {
+        prefix: { chars: personaPrefix.length, ...estimateTokens(personaPrefix) },
+        suffix: { chars: personaSuffix.length, ...estimateTokens(personaSuffix) },
+      },
+      totalChars: personaPrefix.length + personaSuffix.length,
+      // The order-640 section is built in index.js from runtime values (build
+      // provenance), so it is not knowable here; `stats` prices it at runtime.
+      // Recorded as absent rather than silently folded into the total.
+      sectionChars: null,
     },
   };
   await writeFile(join(dataDir, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
@@ -525,11 +538,17 @@ async function main() {
       `  ${key.padEnd(12)} ${String(info.chars).padStart(6)} chars  ~${info.tokensLow}–${info.tokensHigh} tok`,
     );
   }
-  const preset = manifest.presetPayload;
+  const preset = manifest.presetInjection;
   console.log(
     `  node default T0 only        ~${manifest.blocks["t0-core"].tokensLow}–${manifest.blocks["t0-core"].tokensHigh} tok`,
   );
-  console.log(`  preset mode payload         ~${preset.estimatedTokensLow}–${preset.estimatedTokensHigh} tok`);
+  // Reported as the two parts it is, because they come from different sources and
+  // only the suffix is visible from `blocks` at all.
+  console.log(
+    `  preset injection            prefix ${preset.parts.prefix.chars} + suffix ${preset.parts.suffix.chars} = ${preset.totalChars} chars` +
+      `  ~${preset.parts.prefix.tokensLow + preset.parts.suffix.tokensLow}–${preset.parts.prefix.tokensHigh + preset.parts.suffix.tokensHigh} tok`,
+  );
+  console.log(`                              (+ order-640 section, priced at runtime)`);
 }
 
 await main();

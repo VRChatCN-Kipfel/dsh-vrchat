@@ -1,0 +1,19 @@
+fix: manifest.presetPayload measured the suffix and called it the preset
+
+The field summed t0-core, domain-map and the three t1 blocks — but those five ARE
+the suffix: suffix = heading + t0 + always-load, and always-load = domain-map +
+t1-world + t1-avatar + t1-shader. The prefix, the single largest part at 10,835
+characters, was not in the list at all.
+
+So a field named "preset payload" reported 2,717-3,948 tokens for what is really
+7,250-10,800, and stats then labelled even that number "prefix + suffix". Two
+layers of false precision on top of a missing term.
+
+Replaced with presetInjection, which prices the two parts from the strings that are
+actually injected and cannot drift back into block arithmetic. The order-640
+section is recorded as null rather than folded in: it is assembled at runtime from
+build provenance, so the build genuinely cannot know it, and pretending otherwise
+is how the gap appeared in the first place. stats prices it at runtime.
+
+The build report now prints each part and its characters, so a future mismatch
+between "what we ship" and "what we claim" is visible at build time.
