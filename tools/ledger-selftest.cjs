@@ -33,7 +33,7 @@ async function main() {
   check("超长查询被截断", mod.normalizeQuery("x".repeat(500)).length <= 160);
 
   // ── rule 1: same turn → remembered ──────────────────────────────────────
-  let state = mod.initLedger({ lite: 623, preset: 3040 });
+  let state = mod.initLedger({ injectedChars: 15678 });
   state = mod.applyLedger(state, turnStart(1, 1));
   state = mod.applyLedger(state, toolCall("vrchat_kb", { query: "Udon 同步变量" }, 2));
 
@@ -61,7 +61,7 @@ async function main() {
   );
 
   // ── rule 2: compaction invalidates ──────────────────────────────────────
-  let s2 = mod.initLedger({ lite: 623, preset: 3040 });
+  let s2 = mod.initLedger({ injectedChars: 15678 });
   s2 = mod.applyLedger(s2, turnStart(1, 1));
   s2 = mod.applyLedger(s2, toolCall("vrchat_kb", { query: "Udon 同步变量" }, 2));
   check("压缩前命中", mod.findPriorQuery(s2, "Udon 同步变量") !== undefined);
@@ -94,7 +94,7 @@ async function main() {
   );
 
   // ── counters ────────────────────────────────────────────────────────────
-  let counted = mod.initLedger({ lite: 623, preset: 3040 });
+  let counted = mod.initLedger({ injectedChars: 15678 });
   counted = mod.applyLedger(counted, turnStart(1, 1));
   counted = mod.applyLedger(counted, toolCall("vrchat_kb", { query: "a" }, 2));
   counted = mod.applyLedger(counted, toolCall("vrchat_kb_grep", { pattern: "x" }, 3));
@@ -122,22 +122,51 @@ async function main() {
 
   // ── view ───────────────────────────────────────────────────────────────
   const view = mod.ledgerView(counted);
-  // BOTH tiers live in the state, because the projection keeps one definition
-  // per key: a single field would be whichever instance applied first.
-  check("view 带 lite 档 token", view.blockTokensLite === 623, String(view.blockTokensLite));
-  check("view 带 preset 档 token", view.blockTokensPreset === 3040, String(view.blockTokensPreset));
+  // One figure per session: what THIS session actually received. The old view
+  // carried both tiers so the client could pick the smaller — which turned out to
+  // be the false one, since the always-on row injects nothing.
+  check("view 带本会话真实注入字符数", view.injectedChars === 15678, String(view.injectedChars));
+  check("view 带角色（root）", view.role === "root", String(view.role));
   check("view 带轮次", view.turn === 1);
   check("view 带最近查询", view.lastQuery === "a", view.lastQuery);
-  check("空账本 lastQuery 为 null", mod.ledgerView(mod.initLedger({ lite: 0, preset: 0 })).lastQuery === null);
-  // A legacy numeric argument must still work rather than produce NaN.
-  const legacy = mod.initLedger(500);
-  check("旧式数字参数仍可用", legacy.blockTokensLite === 500 && legacy.blockTokensPreset === 0, JSON.stringify({
-    lite: legacy.blockTokensLite,
-    preset: legacy.blockTokensPreset,
-  }));
+  check("空账本 lastQuery 为 null", mod.ledgerView(mod.initLedger({ injectedChars: 0 })).lastQuery === null);
+
+  // The always-on row injects no section, so its honest figure is 0 — and the
+  // client hides the dock at 0. A non-zero default here is what made the dock
+  // permanently visible in sessions that never opted in.
+  check("默认（不传参数）注入量为 0", mod.initLedger().injectedChars === 0, String(mod.initLedger().injectedChars));
+
+  // A bare number used to mean "the single legacy token cost". After the switch
+  // to characters that meaning is gone, so it must be REJECTED rather than
+  // silently reinterpreted as 500 characters — a stale caller should fail loudly.
+  let legacyThrew = false;
+  try {
+    mod.initLedger(500);
+  } catch {
+    legacyThrew = true;
+  }
+  check("旧式数字参数被拒绝（而不是当成 500 字符）", legacyThrew, "数字已无语义");
+
+  // ── subagent ───────────────────────────────────────────────────────────
+  // A child's own context receives no section, so it must not inherit the
+  // parent's cost — that would double-count what the parent already paid.
+  const child = mod.initLedger({ injectedChars: 0, role: "child", parentSession: "s-parent" });
+  check("子会话角色为 child", child.role === "child", child.role);
+  check("子会话记住父会话 id", child.parentSession === "s-parent", String(child.parentSession));
+  check("子会话注入量为 0", child.injectedChars === 0, String(child.injectedChars));
+  // The de-duplication ledger must NOT cross sessions: a child cannot see the
+  // parent's conversation, so telling it "already asked" would be a claim it
+  // cannot verify.
+  let childState = mod.applyLedger(child, turnStart(1, 0));
+  childState = mod.applyLedger(childState, toolCall("vrchat_kb", { query: "q" }, 2));
+  check(
+    "子会话的台账里没有父会话的查询",
+    mod.findPriorQuery(childState, "只在父会话问过的问题") === undefined,
+    "跨会话共享会让子会话错误拒答",
+  );
 
   // ── cap ────────────────────────────────────────────────────────────────
-  let many = mod.initLedger({ lite: 0, preset: 0 });
+  let many = mod.initLedger({ injectedChars: 0 });
   many = mod.applyLedger(many, turnStart(1, 0));
   for (let i = 0; i < 60; i++) many = mod.applyLedger(many, toolCall("vrchat_kb", { query: `q${i}` }, i + 1));
   check("账本有上限", many.queries.length <= 40, String(many.queries.length));

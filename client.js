@@ -37,25 +37,30 @@ window.__ModuleLoader__.load({
     };
 
     /**
-     * Compose the one-line summary from a projection view.
+     * Compose the one-line summary, or null when this session has nothing to say.
      *
-     * The row shows the amount THIS session actually pays. The view carries both
-     * tiers (`blockTokensLite` / `blockTokensPreset`) because the projection keeps
-     * one definition per key, so a single field could only ever reflect whichever
-     * instance registered first. The client cannot know which preset is active,
-     * so it shows the smaller figure — the always-on tier — rather than a number
-     * that might belong to the other mode.
+     * BOTH conditions must be empty for the row to stay hidden: nothing injected
+     * AND no tool used. That is the point — the row is a cost report, so a session
+     * that never opted into the preset pays nothing and asks nothing, and showing
+     * it a figure would be inventing one.
+     *
+     * The previous version tested `blockTokensLite || blockTokensPreset`, and both
+     * were ALWAYS non-zero: they held "what this tier would cost", not "what this
+     * session received". So the row was permanently visible in every session,
+     * quoting a number for an injection of zero. The comment above it claimed the
+     * dock "never shows a wrong number"; the constants made that untrue.
      */
     function describe(view) {
-      const parts = [];
-      const tokens = [view.blockTokensLite, view.blockTokensPreset].filter(
-        (value) => typeof value === "number" && value > 0,
-      );
-      if (tokens.length > 0) parts.push(`≥${Math.min(...tokens)} tok`);
       const calls =
         (view.digestCalls ?? 0) + (view.grepCalls ?? 0) + (view.readCalls ?? 0) + (view.scanCalls ?? 0);
+      const injectedChars = typeof view.injectedChars === "number" ? view.injectedChars : 0;
+
+      if (injectedChars === 0 && calls === 0) return null;
+
+      const parts = [];
+      if (injectedChars > 0) parts.push(`注入 ${injectedChars.toLocaleString()} 字符`);
       if (calls > 0) parts.push(`${calls} 次查询`);
-      return parts.length === 0 ? null : `VRChat KB · ${parts.join(" · ")}`;
+      return `VRChat KB · ${parts.join(" · ")}`;
     }
 
     /**
@@ -71,7 +76,7 @@ window.__ModuleLoader__.load({
 
       const title =
         view.lastQuery === null || view.lastQuery === undefined
-          ? "VRChat 知识库注入量（/vrchat stats 查看详情）"
+          ? "VRChat 知识库本会话的注入与查询（/vrchat stats 查看详情）"
           : `最近查询：${view.lastQuery}（/vrchat stats 查看详情）`;
 
       return h(

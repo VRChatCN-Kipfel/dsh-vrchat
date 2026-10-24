@@ -119,17 +119,20 @@ const ledgerEntrySchema = zod.object({
 const ledgerStateSchema = zod.object({
   version: zod.number(),
   /**
-   * Token cost of BOTH blocks, always.
+   * Characters this session actually received from this plugin.
    *
-   * A single `blockTokens` field was a mistake: the projection service registers
-   * one definition per key and DISCARDS the second (it only bumps `refs`), so
-   * whichever instance applied first won and the other's value was lost forever
-   * — with `EntryGroup.update` creating rows concurrently, that winner was not
-   * even stable. Storing both makes the value order-independent: it no longer
-   * depends on which of the two instances happened to run first.
+   * Zero for the always-on row (it injects no section) and zero for subagents
+   * (their own context gets no section either). The client renders nothing at
+   * zero, so a session that never opts into the preset stays silent — which is
+   * the whole point of not injecting there.
+   *
+   * This replaces `blockTokensLite` / `blockTokensPreset`. Those two carried
+   * "what this tier would cost if it injected", which was (a) not what happened,
+   * and (b) always non-zero, so the dock could never hide.
    */
-  blockTokensLite: zod.number(),
-  blockTokensPreset: zod.number(),
+  injectedChars: zod.number(),
+  role: zod.enum(["root", "child"]),
+  parentSession: zod.string().nullable(),
   turn: zod.number(),
   generation: zod.number(),
   queries: zod.array(ledgerEntrySchema),
@@ -140,8 +143,8 @@ const ledgerStateSchema = zod.object({
 });
 
 const ledgerViewSchema = zod.object({
-  blockTokensLite: zod.number(),
-  blockTokensPreset: zod.number(),
+  injectedChars: zod.number(),
+  role: zod.enum(["root", "child"]),
   turn: zod.number(),
   digestCalls: zod.number(),
   grepCalls: zod.number(),
@@ -182,6 +185,33 @@ function assertDataPresent() {
         `data/ 是构建产物，请先运行：node tools/build-knowledge.mjs`,
     );
   }
+}
+
+/**
+ * Character count of the persona text this build ships.
+ *
+ * The persona is a `dsh-persona` row in the patch, so a plugin cannot read its
+ * own sibling's config. The build writes the SAME strings to `data/persona-
+ * prefix.txt` and `data/persona-suffix.txt` from one source, so reading them here
+ * answers "how much persona text accompanies this build" without guessing.
+ *
+ * Cached because it is read once per instance and never changes at runtime.
+ *
+ * @param dir - the package's data directory.
+ * @returns total characters of prefix + suffix; 0 when the files are absent.
+ */
+let personaCharsCache = null;
+function personaTextChars(dir) {
+  if (personaCharsCache !== null) return personaCharsCache;
+  let total = 0;
+  for (const file of ["persona-prefix.txt", "persona-suffix.txt"]) {
+    // A partial build must not fail activation — the tools still work without
+    // the persona files, and `assertDataPresent` owns the required list.
+    if (!existsSync(join(dir, file))) continue;
+    total += readFileSync(join(dir, file), "utf8").length;
+  }
+  personaCharsCache = total;
+  return total;
 }
 
 /** Shared by every mounted instance: they import this same file. */
@@ -406,6 +436,24 @@ function apply(ctx, config) {
     });
   }
 
+  // How much THIS instance actually pushes into a session's prompt.
+  //
+  // Computed from the injected strings themselves. The manifest could not answer
+  // this: it counts blocks that are never injected separately (`t1-world` and
+  // friends are already inside `always-load`), and even its "preset payload"
+  // figure counted the suffix without the prefix, so its total was about half
+  // the truth.
+  //
+  // The persona lives in the patch skeleton, which a plugin cannot read about
+  // itself, so the same text is read from `data/` — the build writes both from
+  // one source. A mismatch is a build bug, not a runtime condition, which is why
+  // `tools/persona-consistency-check.cjs` asserts they are byte-identical.
+  //
+  // Zero when nothing is injected. That is the honest answer for the always-on
+  // row, and the client needs it to stay silent in sessions that never opt in.
+  const personaChars = injectSection ? personaTextChars(dataDir) : 0;
+  const injectedChars = injectSection ? sectionText.length + personaChars : 0;
+
   // ── Session ledger projection ─────────────────────────────────────────────
   // One unit serves the Chat row AND `seen` de-duplication. It is a pure fold
   // over committed events, so it survives resume/fork and costs nothing when
@@ -420,21 +468,37 @@ function apply(ctx, config) {
         key: "vrchatKb",
         stateSchema: ledgerStateSchema,
         viewSchema: ledgerViewSchema,
-        // Both costs are seeded from the build manifest, INDEPENDENT of which
-        // tier this instance is: the projection keeps one definition per key, so
-        // a value that depended on the mounted tier would be silently replaced by
-        // whichever instance registered first.
-        init: () =>
-          initLedger({
-            lite: meta.blocks?.["t0-core"]?.tokensHigh ?? 0,
-            preset: meta.blocks?.["always-load"]?.tokensHigh ?? 0,
-          }),
+        // Seeded from what THIS session actually received, not from a lookup table.
+        //
+        // The old version read `t0-core`'s size and called it the always-on cost.
+        // But the always-on row injects NOTHING (`injectSection` is false for
+        // `lite`), so every ordinary session showed a non-zero figure for an
+        // injection of zero — and the client used "is it non-zero" to decide
+        // whether to render, so the row appeared in sessions that never touched
+        // VRChat. Measuring the real strings makes both problems impossible.
+        //
+        // A subagent gets 0 on purpose: its own context receives no section (the
+        // preset's scope belongs to the parent), so charging it the parent's cost
+        // would double-count.
+        init: (header) => {
+          const isChild = header?.origin === "subagent";
+          return initLedger({
+            injectedChars: isChild ? 0 : injectedChars,
+            role: isChild ? "child" : "root",
+            parentSession: header?.parentSession ?? null,
+          });
+        },
         apply: (state, event) => applyLedger(state, event),
         wire: {
           viewSchema: ledgerViewSchema,
           view: (state) => ledgerView(state),
         },
-        stateVersion: 1,
+        // Bumped 1 → 2 with the state schema change (per-tier token fields
+        // replaced by `injectedChars` / `role` / `parentSession`). A stored
+        // checkpoint row carries its own `ver`; leaving this at 1 would let an
+        // old row pass the version check and then fail `stateSchema.parse`,
+        // which the registry reports as an unrestorable projection.
+        stateVersion: 2,
       }),
     );
   }
@@ -1395,15 +1459,43 @@ function apply(ctx, config) {
   const commands = ctx.get("commands");
   const tokenMeter = ctx.get("tokenMeter");
 
-  /** Price one system-prompt string through the router's own estimator. */
-  const priceText = (text) =>
-    tokenMeter?.estimateMessage === undefined
-      ? null
-      : tokenMeter.estimateMessage({
-          role: "system",
-          content: [{ type: "text", text }],
-          source: { kind: "system-prompt" },
-        });
+  /**
+   * Price one system-prompt string, in characters, with a billed-token BAND.
+   *
+   * Two different questions, and conflating them produced the "（router 实测）"
+   * lie: `tokenMeter.estimateMessage` is `ceil(chars / 4)` — a flat divisor that
+   * never sees the text is Chinese. At ~1 token per CJK character the real cost
+   * of a Chinese paragraph is 2–3x that estimate, so quoting it as a measurement
+   * is not a rounding error, it is the wrong answer stated confidently.
+   *
+   * So: characters are exact and reported as such; tokens are a band derived from
+   * the CJK/ASCII split, labelled as an estimate, and the router figure is shown
+   * beside it only to explain why the two disagree.
+   */
+  const CJK_CHAR = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g;
+  const priceText = (text) => {
+    const cjk = (text.match(CJK_CHAR) ?? []).length;
+    const ascii = text.length - cjk;
+    return {
+      chars: text.length,
+      // CJK ≈ 1 token/char (worst) to 1.6 (best); ASCII ≈ 3 (worst) to 4 (best).
+      low: Math.round(cjk / 1.6 + ascii / 4),
+      high: Math.round(cjk / 1 + ascii / 3),
+      cjk,
+      /** The router's flat `chars / 4`, shown only to explain the gap. */
+      flat: tokenMeter?.estimateMessage === undefined
+        ? null
+        : tokenMeter.estimateMessage({
+            role: "system",
+            content: [{ type: "text", text }],
+            source: { kind: "system-prompt" },
+          }),
+    };
+  };
+
+  /** `1234 字符 ≈ 400–600 tok` */
+  const formatPrice = (price) =>
+    `${price.chars} 字符 ≈ ${price.low}–${price.high} tok`;
 
   if (commands !== undefined) {
     ctx.effect(() =>
@@ -1417,28 +1509,57 @@ function apply(ctx, config) {
           const argument = rest.join(" ").trim();
 
           if (subcommand === undefined || subcommand === "stats") {
-            const measured = priceText(sectionText);
-            const lines = [
-              `VRChat KB · tier=${tier}`,
-              `  本段（order 640，运行时状态）：${sectionText.length} 字符 / ${measured ?? "—"} tok（router 实测）`,
-              // The red lines arrive through the PRESET's persona suffix, not this
-              // section; report that budget separately so it is not mistaken for
-              // this section's size.
-              `  预设人设注入（prefix + suffix）：${meta.presetPayload?.estimatedTokensLow ?? "?"}–${meta.presetPayload?.estimatedTokensHigh ?? "?"} tok`,
+            const lines = [`VRChat KB · tier=${tier}`];
+
+            // Report each injected piece with its OWN size, because they come from
+            // different places and one combined number hides which is expensive.
+            // The old line said "预设人设注入（prefix + suffix）" while the figure
+            // it printed was the suffix alone — the prefix was never counted.
+            if (injectSection) {
+              const section = priceText(sectionText);
+              const persona = priceText(
+                ["persona-prefix.txt", "persona-suffix.txt"]
+                  .map((file) => {
+                    const full = join(dataDir, file);
+                    return existsSync(full) ? readFileSync(full, "utf8") : "";
+                  })
+                  .join(""),
+              );
+              lines.push(
+                `  本会话实际注入：${formatPrice(section)} + ${formatPrice(persona)}`,
+                `    section（order 640，运行时状态） ${section.chars} 字符`,
+                `    persona（prefix + suffix）      ${persona.chars} 字符`,
+              );
+              if (section.flat !== null) {
+                lines.push(
+                  `  router 估算同内容：${section.flat + (persona.flat ?? 0)} tok —— 它是 chars/4，` +
+                    `不分语言；中文实际约 1 tok/字，故偏低 ${Math.round((persona.high / Math.max(1, persona.flat ?? 1)) * 10) / 10} 倍`,
+                );
+              }
+            } else {
+              lines.push(
+                `  本会话实际注入：0 字符（tier=${tier} 不注册 section，也不挂 persona）`,
+                `  注：常驻行只提供工具，选了 VRChat 预设才有注入`,
+              );
+            }
+
+            lines.push(
               `  ${provenance}`,
               `  语料：${meta.pageCount} 页，路由 ${data.routes.length} 条，规则 ${ruleInventory().length} 条`,
-            ];
+            );
 
             const ledger = readLedger(invocation.agent);
             if (ledger === undefined) {
               lines.push("  本会话用量：不可用（未注册 sessionProjections）");
             } else {
+              const calls =
+                ledger.digestCalls + ledger.grepCalls + ledger.readCalls + ledger.scanCalls;
               lines.push(
-                `  本会话用量：digest ${ledger.digestCalls} / grep ${ledger.grepCalls} / read ${ledger.readCalls} / scan ${ledger.scanCalls}`,
+                `  本会话用量：digest ${ledger.digestCalls} / grep ${ledger.grepCalls} / read ${ledger.readCalls} / scan ${ledger.scanCalls}` +
+                  `（合计 ${calls}）`,
                 `  已查问题：${ledger.queries.length} 条${ledger.queries.length === 0 ? "" : `，最近「${ledger.queries.at(-1).query}」`}`,
-                // Both tiers are reported: one field could not represent two
-                // mounts, because the projection keeps one definition per key.
-                `  各档位注入量：lite ${ledger.blockTokensLite} tok / preset ${ledger.blockTokensPreset} tok`,
+                `  账本记录的注入量：${ledger.injectedChars} 字符` +
+                  (ledger.role === "child" ? "（子会话：不继承父会话的注入成本）" : ""),
               );
             }
 
