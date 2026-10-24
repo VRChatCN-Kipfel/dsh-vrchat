@@ -1,4 +1,4 @@
-# dsh-vrchat
+# **DSH-VRChat**
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai) 的 VRChat 创作者工具链。
 
