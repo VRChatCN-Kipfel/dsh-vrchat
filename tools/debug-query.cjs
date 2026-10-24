@@ -14,9 +14,25 @@ const STOP = new Set([
 
 async function main() {
   const mod = await import(pathToFileURL(join(__dirname, "..", "lib", "search.js")).href);
-  const store = mod.createStore(join(__dirname, "..", "data"));
+  // The corpus root is NOT optional here. `createStore(dataDir)` defaults it to
+  // null, and with no root `bodyOf()` returns null for every page — so every
+  // haystack is just "title + tags", and `rank()` can only admit a page whose
+  // TITLE or TAGS cover a query token. Body-only matches, which is most of the
+  // corpus, are invisible. That made this probe report a false "0 hits" for
+  // questions the real tool answers: `blender` scored 0 here and 13 with the
+  // corpus attached, because only the body names it for the other 12 pages.
+  //
+  // This is the same resolution the shipped plugin uses, so the probe now
+  // measures what a session measures.
+  const corpusRoot = mod.findCorpusRoot(join(__dirname, ".."));
+  if (corpusRoot === null) {
+    console.error("找不到语料根：debug-query 需要随包语料才能得到真实数字，否则结果是假阴性。");
+    process.exit(2);
+  }
+  const store = mod.createStore(join(__dirname, "..", "data"), corpusRoot);
   const query = process.argv[2] ?? "我自己写了一个 Rust CI 流水线";
 
+  console.log(`corpus : ${corpusRoot}`);
   const raw = mod.tokenize(query);
   const kept = raw.filter((t) => !STOP.has(t));
   console.log(`query  : ${query}`);

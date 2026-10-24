@@ -113,6 +113,39 @@ async function main() {
     );
   }
 
+  // ── 5. the persona names a recommended-skills doc; it must ship ─────────
+  //
+  // The PRESET persona tells the model to read this table before recommending any
+  // third-party skill. `vendor/vrchat-world-codex-skills` is in the files whitelist
+  // as a WHOLE directory, so losing `docs/` would not break the whitelist check —
+  // and `cited-paths.cjs` only resolves paths inside the corpus, not vendor docs.
+  // Without this the persona could point at a file that no longer exists and every
+  // check would still pass: exactly the "declares what it cannot deliver" failure
+  // this repo keeps running into.
+  const personaPrefix = fs.readFileSync(path.join(pkgDir, "data", "persona-prefix.txt"), "utf8");
+  const RECOMMENDED_DOC = "vendor/vrchat-world-codex-skills/docs/RECOMMENDED_OPEN_SOURCE_SKILLS.md";
+  if (personaPrefix.includes(RECOMMENDED_DOC)) {
+    check(
+      `persona 引用的推荐表随包存在`,
+      fs.existsSync(path.join(pkgDir, ...RECOMMENDED_DOC.split("/"))),
+      RECOMMENDED_DOC,
+    );
+  } else {
+    console.log(`注意：persona 未引用 ${RECOMMENDED_DOC}（本条跳过）`);
+  }
+
+  // ── 6. if the persona names the doc, it must name it with its real location ──
+  //
+  // A relative filename without the `vendor/` prefix would resolve against the
+  // installed package root for a human but against the session cwd for the model.
+  if (personaPrefix.includes("RECOMMENDED_OPEN_SOURCE_SKILLS.md")) {
+    check(
+      "推荐表被以包内相对路径引用（含 vendor/ 前缀）",
+      personaPrefix.includes(RECOMMENDED_DOC),
+      "缺 vendor/ 前缀时模型会按会话 cwd 去找",
+    );
+  }
+
   report();
 
   function report() {

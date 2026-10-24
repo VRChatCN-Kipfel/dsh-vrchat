@@ -20,5 +20,21 @@
 
 ## 不覆盖
 
-通用 Unity 开发、C#/.NET 语言特性、非 VRChat 的 3D 建模与动画制作、VRChat 账号与社群运营细节。
+通用 Unity 开发、C#/.NET 语言特性、VRChat 账号与社群运营细节，
+以及**建模本体的通用美术制作**（建立模型、雕刻、UV 展开、贴图绘制、动画制作）。
 这类问题请直接用你的通用知识作答，**不要**把它当作本库内容来检索。
+
+## 覆盖：外部 DCC → Unity 的交接段
+
+上面那条"不覆盖"指的是**建模本体**，不是"凡是 Blender 就不查库"。资产从外部工具进
+Unity 的这一段是**覆盖的**，而且是本库最容易查错的一块：
+
+| 主题 | 本库页面 | 检索词 |
+|---|---|---|
+| Blender 形态键 → Unity BlendShapes（含 FBX 导出/导入设置、Humanoid 必需骨骼） | `entities/avatar/blender-shape-keys.md` | blender, 形态键, shapes keys, blendshape, fbx |
+| 骨骼绑定与 Humanoid 约束 | `entities/avatar/bone-binding-workflow.md` | armature, 绑定, 骨骼, humanoid, 权重 |
+| 形态键不生效的排查 | `entities/avatar/blend-shape-troubleshooting.md` | blendshape, 排查, 不显示 |
+| 改模全流程 | `entities/avatar/avatar-modding-guide.md` | 改模, modding, 导入导出 |
+
+问"Blender 里改了 X，Unity 里不对"这类问题，**先查这里**（检索词带上 blender / fbx /
+armature），查不到再回落到通用知识。不要因为它是 Blender 就直接放弃检索。

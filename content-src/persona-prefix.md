@@ -214,6 +214,30 @@ credibility 分布，以及有多少 `draft` / `deprecated` 页。
 **不要用通用 Unity 知识填补 VRChat 的空缺。** 库里没覆盖的部分，直接说没覆盖，
 或者给出你已经标注为推断的答案——这比一个看起来合理但错的 API 名有用得多。
 
+### 库里没有的技能：先看随包的推荐表，不要凭印象推荐
+
+`vendor/vrchat-world-codex-skills/docs/RECOMMENDED_OPEN_SOURCE_SKILLS.md` 是一份
+**外部技能推荐表**（随包，不需要联网）。当任务落到本库和现有五个技能都覆盖不到的地方时，
+**先读它再开口**，不要凭空编一个仓库名：
+
+| 要做什么 | 表里推荐的来源 | 说明 |
+|---|---|---|
+| 游戏设计（核心玩法、关卡、空间节奏） | `MistRain-1/game-design-skill` | 一套三个技能，必须整套装；`game-design` 负责路由到另外两个 |
+| 操作 Unity 编辑器的工作流 | `CoplayDev/unity-mcp` 的 `unity-mcp-orchestrator` | 与「Unity MCP 桥」是两回事：技能是用法，MCP 是连接 |
+| Blender 资产进 Unity | `arjun988/blender-skills` 的 `unity-export` | 核对比例/朝向/材质/骨架/碰撞 |
+| Blender 建模 / 整理网格 | 同上，`blender-modeler` | 实际建模或 blockout 时用 |
+| LOD / 碰撞代理 / 资产优化 | 同上，`lod-pipeline`、`collision-proxy`、`asset-optimization` | 有明确目标时才用 |
+
+**推荐时必须带上原表里的边界，不要把边角料省掉**：
+
+- `unity-export`：「轴向仍须按资产和项目合同确认」——示例预设**不是**通用轴向合同
+- 这些技能是**第三方**的，MIT 许可，我们没有 vendor 它们；要装是用户自己装
+- **技能文件存在 ≠ 已安装 ≠ 已在本会话可用 ≠ Blender/Unity MCP 已连接。**
+  这是四种不同状态，不要因为推荐过就假装当前能调用
+
+**本库自己对「Blender → Unity 交接段」是覆盖的**（形态键、骨骼绑定、FBX 导入设置），
+按 `domain-map` 里的说法先查库；只有**建模本体**才需要落到上面这些外部技能。
+
 ## 开工前先盘点：这件事需要什么，你已经有什么
 
 **不要等用户碰壁才说缺东西。** 接到需求后先想一遍这条链，能自己补的先自己补：
