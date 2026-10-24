@@ -78,13 +78,42 @@ const DATA_ARTIFACTS = [
   "keyword-routes.json",
 ];
 
+/**
+ * Run a child process with NO shell.
+ *
+ * Two separate reasons, and they must not be conflated:
+ *
+ * 1. THE RUNTIME COMES FROM THE HOST, NOT FROM PATH. The build step runs
+ *    `process.execPath` — the node that is executing this script right now, i.e.
+ *    DSH's embedded node. Writing `node tools/build-knowledge.mjs` would instead
+ *    resolve through PATH, where on a user's machine the answer is a SYSTEM node
+ *    that may be absent or a much older major version. The plugin's own runtime
+ *    APIs (and so what the build assumes) come from the embedded one. On this
+ *    development machine PATH happens to start with a DSH wrapper, which is exactly
+ *    the kind of local luck that hides this bug until a real user hits it.
+ *
+ * 2. `shell: true` re-parses the command line, and a path with a space dies there.
+ *    That is not hypothetical — the first end-to-end install failed with
+ *    `'D:\Program' is not recognized as an internal or external command` because
+ *    `process.execPath` is `D:\Program Files\DSH Desktop\...\node.exe`. Without a
+ *    shell, Node quotes each argument itself and such paths are safe.
+ *
+ * `git`, by contrast, has no such anchor: it is genuinely whatever the user
+ * installed, so it is resolved once to an absolute path (see `resolveGit`) and then
+ * invoked the same shell-free way.
+ */
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    shell: process.platform === "win32",
+    // No shell: arguments are passed verbatim, so spaces in paths are safe.
+    shell: false,
+    windowsHide: true,
   });
+  if (result.error !== undefined && result.error !== null) {
+    throw new Error(`${command} 无法启动：${result.error.message}`);
+  }
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || "").trim().split("\n").slice(-6).join("\n");
     throw new Error(
@@ -94,13 +123,41 @@ function run(command, args, cwd) {
   return result.stdout ?? "";
 }
 
-function hasGit() {
-  try {
-    run("git", ["--version"], PKG_ROOT);
-    return true;
-  } catch {
-    return false;
+/**
+ * `git` as a bare name needs a shell or an absolute path on Windows. Resolve it
+ * once, preferring PATH, then the standard install locations, so the rest of this
+ * file can call it without a shell.
+ */
+let GIT_BIN = null;
+function resolveGit() {
+  if (GIT_BIN !== null) return GIT_BIN;
+  const candidates = ["git"];
+  if (process.platform === "win32") {
+    const pf = process.env.ProgramFiles ?? "C:\\Program Files";
+    const pf86 = process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
+    const local = process.env.LOCALAPPDATA ?? "";
+    candidates.push(
+      join(pf, "Git", "cmd", "git.exe"),
+      join(pf86, "Git", "cmd", "git.exe"),
+      join(local, "Programs", "Git", "cmd", "git.exe"),
+    );
   }
+  for (const candidate of candidates) {
+    try {
+      const out = spawnSync(candidate, ["--version"], { encoding: "utf8", shell: false });
+      if (out.status === 0) {
+        GIT_BIN = candidate;
+        return candidate;
+      }
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  return null;
+}
+
+function hasGit() {
+  return resolveGit() !== null;
 }
 
 function isPopulated(dir, expect) {
@@ -136,18 +193,18 @@ function fetchSource(source) {
   if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
 
   console.log(`[prepare] ${source.path}: cloning ${source.url}`);
-  run("git", ["clone", "--depth", "1", source.url, tmp], PKG_ROOT);
+  run(GIT_BIN, ["clone", "--depth", "1", source.url, tmp], PKG_ROOT);
 
   // The pinned commit may be older than HEAD, so deepen until it is reachable.
   // `--depth 1` alone would fail for any commit that is not the branch tip.
   try {
-    run("git", ["-C", tmp, "fetch", "--depth", "1", "origin", source.commit], PKG_ROOT);
+    run(GIT_BIN, ["-C", tmp, "fetch", "--depth", "1", "origin", source.commit], PKG_ROOT);
   } catch {
     // Fall back to a full fetch: shallow fetch of a specific SHA is not supported
     // by every server configuration.
-    run("git", ["-C", tmp, "fetch", "--unshallow"], PKG_ROOT).toString();
+    run(GIT_BIN, ["-C", tmp, "fetch", "--unshallow"], PKG_ROOT).toString();
   }
-  run("git", ["-C", tmp, "checkout", source.commit], PKG_ROOT);
+  run(GIT_BIN, ["-C", tmp, "checkout", source.commit], PKG_ROOT);
 
   // Drop the inner git dir: this is vendored content, not a repository. Leaving it
   // would make the package look like a repo and can confuse later tooling.

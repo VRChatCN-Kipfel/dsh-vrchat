@@ -82,7 +82,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "yaml": "^2.9.0"
   },
   "scripts": {
     "prepare": "node tools/prepare.js"

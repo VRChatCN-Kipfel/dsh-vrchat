@@ -19,18 +19,38 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, posix } from "node:path";
 const require = createRequire(import.meta.url);
-// The deployment ships `yaml` (it is a Host dependency), and the patch is
-// serialized with it rather than hand-templated — a single misplaced block
-// scalar breaks activation of the whole preset. It is deliberately NOT a
-// dependency of this package: only this build tool needs it, and the shipped
-// plugin reads no YAML at runtime.
+// The patch is serialized with YAML rather than hand-templated — a single misplaced
+// block scalar breaks activation of the whole preset — and the shipped plugin reads
+// no YAML at runtime.
+//
+// `yaml` IS a declared dependency of this package, and that changed deliberately.
+// It used to be resolved out of the DSH installation via DSH_PROFILE_DIR, on the
+// assumption that this builder only ever ran on a developer's machine where that
+// installation is known and present. `tools/prepare.js` breaks that assumption: it
+// runs on the USER's machine during `npm install`, in an environment where
+// DSH_PROFILE_DIR is not set and the DSH tree may not even exist. Under the old
+// lookup the build exited 2 and the install failed on every machine that was not
+// this one.
+//
+// Resolution order is now: this package's own node_modules (correct wherever it is
+// installed), then the DSH tree for developers who work without installing `yaml`.
 let YAML;
-try {
-  YAML = require(join(process.env.DSH_PROFILE_DIR ?? "", "node_modules", "yaml"));
-} catch {
+const loadAttempts = [
+  () => require("yaml"),
+  () => require(join(process.env.DSH_PROFILE_DIR ?? "", "node_modules", "yaml")),
+];
+for (const attempt of loadAttempts) {
+  try {
+    YAML = attempt();
+    break;
+  } catch {
+    /* try the next location */
+  }
+}
+if (YAML === undefined) {
   console.error(
-    "缺少 yaml 解析器：本脚本从 DSH 安装目录读取它。\n" +
-      "请在装有 DSH 的环境运行，或设置 DSH_PROFILE_DIR 指向一个含 node_modules/yaml 的 profile。",
+    "缺少 yaml 解析器。本脚本需要 `yaml`（已是本包依赖，正常 npm 安装会带上）。\n" +
+      "若在源码目录直接运行：先 npm install；或设置 DSH_PROFILE_DIR 指向含 node_modules/yaml 的目录。",
   );
   process.exit(2);
 }
