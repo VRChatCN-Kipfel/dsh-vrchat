@@ -9,8 +9,8 @@ const { installedPatch, locateRows } = require("./lib-patch-rows.cjs");
 
 const generationsLib = require("./lib-generation.cjs");
 
-const target = generationsLib.newestGeneration("dsh-vrchat-kb+");
-const patch = installedPatch(path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat-kb"));
+const target = generationsLib.newestGeneration("dsh-vrchat+");
+const patch = installedPatch(path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat"));
 
 const CJK = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/;
 const price = (text) => {

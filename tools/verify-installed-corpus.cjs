@@ -13,12 +13,12 @@ const { pathToFileURL } = require("node:url");
 const generationsLib = require("./lib-generation.cjs");
 
 async function main() {
-  const target = generationsLib.newestGeneration("dsh-vrchat-kb+");
+  const target = generationsLib.newestGeneration("dsh-vrchat+");
   if (target === null) {
     console.log("找不到已安装代");
     process.exit(1);
   }
-  const pkgRoot = path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat-kb");
+  const pkgRoot = path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat");
   console.log(`代: ${target}`);
 
   const checks = [];

@@ -15,11 +15,11 @@ const generations = require("./lib-generation.cjs");
 
 /** Absolute path of the newest installed package directory. */
 function installedPackageDir() {
-  const target = generations.newestGeneration("dsh-vrchat-kb+");
+  const target = generations.newestGeneration("dsh-vrchat+");
   if (target === null) return null;
   return {
     generation: target,
-    dir: path.join(generations.liveRoot(), target, "node_modules", "dsh-vrchat-kb"),
+    dir: path.join(generations.liveRoot(), target, "node_modules", "dsh-vrchat"),
   };
 }
 
@@ -48,14 +48,14 @@ function installedPatch(pkgDir) {
 function locateRows(patch) {
   const rows = patch?.[0]?.insert ?? [];
   const preset = rows.find((row) => row.id === "preset-vrchat");
-  const alwaysOn = rows.find((row) => row.name === "dsh-vrchat-kb" && row.id !== "preset-vrchat");
+  const alwaysOn = rows.find((row) => row.name === "dsh-vrchat" && row.id !== "preset-vrchat");
   const plugins = preset?.config?.plugins ?? [];
   return {
     rows,
     preset,
     alwaysOn,
     persona: plugins.find((plugin) => plugin.id === "persona"),
-    presetKb: plugins.find((plugin) => plugin.name === "dsh-vrchat-kb"),
+    presetKb: plugins.find((plugin) => plugin.name === "dsh-vrchat"),
   };
 }
 

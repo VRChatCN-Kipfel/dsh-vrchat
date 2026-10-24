@@ -12,7 +12,7 @@
  * simply renders nothing, so the dock never shows a wrong number.
  */
 window.__ModuleLoader__.load({
-  id: "dsh-vrchat-kb",
+  id: "dsh-vrchat",
   factory(require) {
     const React = require("react");
     const h = React.createElement;

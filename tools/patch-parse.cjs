@@ -47,7 +47,7 @@ const rows = parsed?.[0]?.insert ?? [];
 const preset = rows.find((entry) => entry.id === "preset-vrchat");
 const globalRow = rows.find((entry) => entry.id === "vrchat-kb");
 const persona = preset?.config?.plugins?.find((plugin) => plugin.id === "persona");
-const kb = preset?.config?.plugins?.find((plugin) => plugin.name === "dsh-vrchat-kb");
+const kb = preset?.config?.plugins?.find((plugin) => plugin.name === "dsh-vrchat");
 const prefix = persona?.config?.prefix;
 const suffix = persona?.config?.suffix;
 
@@ -61,7 +61,7 @@ const check = (name, ok, detail) => checks.push({ name, ok, detail });
 // only appear when the user selected the preset. That is two rows, not one.
 check("存在常驻工具行", globalRow !== undefined, String(globalRow?.id));
 check("常驻行 tier 为 lite（只注册工具）", globalRow?.config?.tier === "lite", globalRow?.config?.tier);
-check("常驻行不是预设", globalRow?.name === "dsh-vrchat-kb", globalRow?.name);
+check("常驻行不是预设", globalRow?.name === "dsh-vrchat", globalRow?.name);
 check("共两行（工具 + 预设）", rows.length === 2, `${rows.length} 行`);
 
 // ── preset shape ────────────────────────────────────────────────────────

@@ -68,7 +68,7 @@ console.log(`  词表扫描 ${vocabMs.toFixed(1)} ms（仅标题行）`);
 
 console.log("");
 console.log("每代安装都会在磁盘上复制一份:");
-console.log(`  packages/.generations/live/<gen>/node_modules/dsh-vrchat-kb/data/`);
+console.log(`  packages/.generations/live/<gen>/node_modules/dsh-vrchat/data/`);
 const generations = path.join(
   process.env.DSH_HOME ?? "",
   "profiles",
@@ -76,10 +76,10 @@ const generations = path.join(
   "live",
 );
 if (fs.existsSync(generations)) {
-  const gens = fs.readdirSync(generations).filter((n) => n.startsWith("dsh-vrchat-kb+"));
+  const gens = fs.readdirSync(generations).filter((n) => n.startsWith("dsh-vrchat+"));
   let installed = 0;
   for (const gen of gens) {
-    const f = path.join(generations, gen, "node_modules", "dsh-vrchat-kb", "data", "pages.json");
+    const f = path.join(generations, gen, "node_modules", "dsh-vrchat", "data", "pages.json");
     if (fs.existsSync(f)) installed += fs.statSync(f).size;
   }
   console.log(`  已装 ${gens.length} 代 → pages.json 共占 ${(installed / 1024 / 1024).toFixed(1)} MB`);

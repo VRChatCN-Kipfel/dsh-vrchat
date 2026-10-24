@@ -15,12 +15,12 @@ const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?
 const YAML = requireFromProfile("yaml");
 
 const generations = require("./lib-generation.cjs");
-const target = generations.newestGeneration("dsh-vrchat-kb+");
+const target = generations.newestGeneration("dsh-vrchat+");
 if (target === null) {
   console.log("找不到已安装代");
   process.exit(1);
 }
-const pkgRoot = path.join(generations.liveRoot(), target, "node_modules", "dsh-vrchat-kb");
+const pkgRoot = path.join(generations.liveRoot(), target, "node_modules", "dsh-vrchat");
 console.log(`代: ${target}`);
 
 const checks = [];

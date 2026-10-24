@@ -137,7 +137,7 @@ function jsScalar(expression) {
 }
 
 function renderPatch(personaPrefix, personaSuffix) {
-  const header = `# dsh-vrchat-kb — VRChat 创作知识库  【本文件由 tools/build-knowledge.mjs 生成，不要手改】
+  const header = `# dsh-vrchat — VRChat 创作知识库  【本文件由 tools/build-knowledge.mjs 生成，不要手改】
 #
 # 两行，职责不同：
 #
@@ -155,7 +155,7 @@ function renderPatch(personaPrefix, personaSuffix) {
       insert: [
         {
           id: "vrchat-kb",
-          name: "dsh-vrchat-kb",
+          name: "dsh-vrchat",
           config: { tier: "lite" },
         },
         {

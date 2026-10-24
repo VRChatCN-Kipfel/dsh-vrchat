@@ -4,12 +4,12 @@ const path = require("node:path");
 const { createRequire } = require("node:module");
 const generationsLib = require("./lib-generation.cjs");
 
-const target = generationsLib.newestGeneration("dsh-vrchat-kb+");
+const target = generationsLib.newestGeneration("dsh-vrchat+");
 if (target === null) {
   console.log("找不到已安装代");
   process.exit(1);
 }
-const pkgRoot = path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat-kb");
+const pkgRoot = path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat");
 console.log(`代: ${target}`);
 
 const requireFromProfile = createRequire(path.join(process.env.DSH_PROFILE_DIR ?? ".", "noop.js"));
@@ -56,7 +56,7 @@ check("bash/pwsh 至少一行存在", bash !== undefined || pwsh !== undefined);
 check("bash 在 Windows 上被禁用", /=== *'win32'/.test(String(bash?.disabled)), String(bash?.disabled));
 check("pwsh 在非 Windows 上被禁用", /!== *'win32'/.test(String(pwsh?.disabled)), String(pwsh?.disabled));
 
-const presetKb = preset?.config?.plugins?.find((plugin) => plugin.name === "dsh-vrchat-kb");
+const presetKb = preset?.config?.plugins?.find((plugin) => plugin.name === "dsh-vrchat");
 check("预设内挂载了知识库插件", presetKb !== undefined);
 check("预设内 tier=preset（会注入）", presetKb?.config?.tier === "preset", presetKb?.config?.tier);
 check("预设内实例 id 与常驻不同", presetKb?.id !== alwaysOn?.id, `${presetKb?.id} vs ${alwaysOn?.id}`);

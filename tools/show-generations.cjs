@@ -4,7 +4,7 @@ const { liveRoot, newestGeneration } = require("./lib-generation.cjs");
 
 const all = fs
   .readdirSync(liveRoot(), { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && entry.name.startsWith("dsh-vrchat-kb+"))
+  .filter((entry) => entry.isDirectory() && entry.name.startsWith("dsh-vrchat+"))
   .map((entry) => entry.name);
 
 console.log("已安装的代（按时间倒序）:");
@@ -15,4 +15,4 @@ for (const name of all
 }
 console.log("");
 console.log(`按名字取最后一个: ${all.slice().sort().at(-1)}   ← 错误`);
-console.log(`按时间取最新:     ${newestGeneration("dsh-vrchat-kb+")}   ← 正确`);
+console.log(`按时间取最新:     ${newestGeneration("dsh-vrchat+")}   ← 正确`);

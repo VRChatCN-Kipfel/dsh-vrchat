@@ -45,7 +45,7 @@ async function main() {
   const mustNotResolve = {
     "Windows 绝对路径": `D:/x/VRChat-Agent-Creator-Library/memoryV5.0.0/LLMWikiExample/LLMWikiPage/${sample}`,
     "Unix 绝对路径": `/home/x/lib/memoryV5.0.0/LLMWikiExample/LLMWikiPage/${sample}`,
-    "安装目录相对路径": `node_modules/dsh-vrchat-kb/VRChat-Agent-Creator-Library/${sample}`,
+    "安装目录相对路径": `node_modules/dsh-vrchat/VRChat-Agent-Creator-Library/${sample}`,
     "版本目录段": `memoryV5.0.0/LLMWikiExample/LLMWikiPage/${sample}`,
   };
   for (const [label, candidate] of Object.entries(mustNotResolve)) {

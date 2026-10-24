@@ -3,8 +3,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const generationsLib = require("./lib-generation.cjs");
 
-const target = generationsLib.newestGeneration("dsh-vrchat-kb+");
-const file = path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat-kb", "lib", "unity-status.js");
+const target = generationsLib.newestGeneration("dsh-vrchat+");
+const file = path.join(generationsLib.liveRoot(), target, "node_modules", "dsh-vrchat", "lib", "unity-status.js");
 const text = fs.readFileSync(file, "utf8");
 
 // Strip comments so documentation about NOT scanning does not count as scanning.

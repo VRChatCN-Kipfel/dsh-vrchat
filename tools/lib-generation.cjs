@@ -2,13 +2,13 @@
  * Pick the newest installed generation of a package.
  *
  * MUST sort by modification time, not by name: generation names embed a version
- * (`dsh-vrchat-kb+0.11.0+hash`), and string sorting puts `0.9.0` AFTER `0.11.0`.
+ * (`dsh-vrchat+0.11.0+hash`), and string sorting puts `0.9.0` AFTER `0.11.0`.
  * A name-sorted pick therefore silently verified a stale generation while
  * reporting success — the failure mode this helper exists to remove.
  *
  * Usage:
  *   const { newestGeneration } = require("./lib-generation.cjs");
- *   const target = newestGeneration("dsh-vrchat-kb+");
+ *   const target = newestGeneration("dsh-vrchat+");
  */
 
 const fs = require("node:fs");
@@ -23,7 +23,7 @@ function liveRoot() {
 
 /**
  * Newest installed generation whose name starts with `prefix`.
- * @param prefix - e.g. `"dsh-vrchat-kb+"`.
+ * @param prefix - e.g. `"dsh-vrchat+"`.
  * @returns the generation directory name, or null when none is installed.
  */
 function newestGeneration(prefix) {

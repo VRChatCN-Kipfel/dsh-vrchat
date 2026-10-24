@@ -200,7 +200,7 @@ console.log(`替换 persona（原 id 保留，位置 ${personaIndex}）`);
 //       inserted early so the standard tool rows keep their relative order.
 plugins.push({
   id: "vrchat-kb-preset",
-  name: "dsh-vrchat-kb",
+  name: "dsh-vrchat",
   config: { tier: "preset" },
 });
 plugins.push({

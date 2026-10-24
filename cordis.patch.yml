@@ -1,4 +1,4 @@
-# dsh-vrchat-kb — VRChat 创作知识库  【本文件由 tools/build-knowledge.mjs 生成，不要手改】
+# dsh-vrchat — VRChat 创作知识库  【本文件由 tools/build-knowledge.mjs 生成，不要手改】
 #
 # 两行，职责不同：
 #
@@ -12,7 +12,7 @@
 
 - insert:
     - id: vrchat-kb
-      name: dsh-vrchat-kb
+      name: dsh-vrchat
       config:
         tier: lite
     - id: preset-vrchat
@@ -937,7 +937,7 @@
             name: "@deepseek-ai/dsh-plugin-manager/tools"
             disabled: true
           - id: vrchat-kb-preset
-            name: dsh-vrchat-kb
+            name: dsh-vrchat
             config:
               tier: preset
           - id: vrchat-skills

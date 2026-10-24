@@ -23,10 +23,10 @@ function pickGeneration(name) {
   if (name !== undefined) {
     const match = fs
       .readdirSync(generations)
-      .find((entry) => entry.startsWith("dsh-vrchat-kb+") && entry.includes(name));
+      .find((entry) => entry.startsWith("dsh-vrchat+") && entry.includes(name));
     return match ?? null;
   }
-  return generationsLib.newestGeneration("dsh-vrchat-kb+");
+  return generationsLib.newestGeneration("dsh-vrchat+");
 }
 
 async function main() {
@@ -36,7 +36,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const pkgRoot = path.join(generations, name, "node_modules", "dsh-vrchat-kb");
+  const pkgRoot = path.join(generations, name, "node_modules", "dsh-vrchat");
   console.log(`代: ${name}`);
 
   const checks = [];

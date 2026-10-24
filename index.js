@@ -189,7 +189,7 @@ function assertDataPresent() {
   const missing = required.filter((file) => !existsSync(join(dataDir, file)));
   if (missing.length > 0) {
     throw new Error(
-      `dsh-vrchat-kb: data/ 不完整，缺少 ${missing.join(", ")}。` +
+      `dsh-vrchat: data/ 不完整，缺少 ${missing.join(", ")}。` +
         `data/ 是构建产物，请先运行：node tools/build-knowledge.mjs`,
     );
   }

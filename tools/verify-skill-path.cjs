@@ -73,14 +73,14 @@ async function main() {
   //
   // The Loader evaluates the `!!js` expression with `baseUrl` in scope. The base
   // is the patch file's own path, so resolve it the same way.
-  const generation = generationsLib.newestGeneration("dsh-vrchat-kb+");
+  const generation = generationsLib.newestGeneration("dsh-vrchat+");
   check("找到已安装代", generation !== null, String(generation));
   if (generation === null) {
     report();
     return;
   }
 
-  const pkgDir = path.join(generationsLib.liveRoot(), generation, "node_modules", "dsh-vrchat-kb");
+  const pkgDir = path.join(generationsLib.liveRoot(), generation, "node_modules", "dsh-vrchat");
   const patchFile = path.join(pkgDir, "cordis.patch.yml");
   check("已安装 patch 存在", fs.existsSync(patchFile));
 
