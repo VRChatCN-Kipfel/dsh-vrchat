@@ -83,8 +83,9 @@
   },
   "license": "MIT",
   "dependencies": {
-    "zod": "^4.4.3",
-    "yaml": "^2.9.0"
+    "isomorphic-git": "^1.44.4",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
   },
   "scripts": {
     "prepare": "node tools/prepare.js"

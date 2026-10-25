@@ -35,6 +35,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { readFileSync } from "node:fs";
+// isomorphic-git wants the whole `fs` namespace (`fs.promises.readFile` etc.), not
+// the handful of named helpers imported above.
+import * as fs from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -265,8 +268,25 @@ function isPopulated(dir, expect) {
  * Cloning into a temp path and renaming afterwards means an interrupted run leaves
  * the destination untouched: readers see either the previous state or the complete
  * one, never a half-filled directory.
+ *
+ * TWO BACKENDS, and the order matters:
+ *
+ *   · system `git` when it exists — fastest, and it is what the user will use later
+ *     for real work anyway;
+ *   · `isomorphic-git` (pure JS) otherwise.
+ *
+ * The fallback is not a nicety. Installation is a PERFECT dependency cycle without
+ * it: `prepare` must clone three repos, cloning needs git, and the guidance that
+ * would let the agent install git lives in this plugin's persona — which only
+ * exists after the install has already succeeded. A user with no git therefore
+ * could not install at all. Pure-JS cloning breaks the cycle: installing needs no
+ * external binary, and system git becomes a convenience rather than a prerequisite.
+ *
+ * Verified against the real API before wiring in: clone(depth/singleBranch/noTags)
+ * → fetch(ref: <sha>, depth: 1) → checkout(ref: <sha>) lands the exact pinned commit
+ * with the expected files, using no system git (1.7s for the smallest source).
  */
-function fetchSource(source) {
+async function fetchSource(source) {
   const dest = join(PKG_ROOT, ...source.path.split("/"));
   if (isPopulated(dest, source.expect)) {
     console.log(`[prepare] ${source.path}: already present`);
@@ -274,7 +294,7 @@ function fetchSource(source) {
   }
 
   // A stale directory (empty gitlink leftover, or a broken earlier attempt) would
-  // make `git clone` refuse, so clear it before cloning.
+  // make the clone refuse, so clear it before cloning.
   if (existsSync(dest)) {
     rmSync(dest, { recursive: true, force: true });
   }
@@ -283,19 +303,14 @@ function fetchSource(source) {
   const tmp = `${dest}.prepare-tmp-${Date.now()}`;
   if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
 
-  console.log(`[prepare] ${source.path}: cloning ${source.url}`);
-  run(GIT_BIN, ["clone", "--depth", "1", source.url, tmp], PKG_ROOT);
-
-  // The pinned commit may be older than HEAD, so deepen until it is reachable.
-  // `--depth 1` alone would fail for any commit that is not the branch tip.
-  try {
-    run(GIT_BIN, ["-C", tmp, "fetch", "--depth", "1", "origin", source.commit], PKG_ROOT);
-  } catch {
-    // Fall back to a full fetch: shallow fetch of a specific SHA is not supported
-    // by every server configuration.
-    run(GIT_BIN, ["-C", tmp, "fetch", "--unshallow"], PKG_ROOT).toString();
+  const gitBin = resolveGit();
+  if (gitBin !== null) {
+    console.log(`[prepare] ${source.path}: cloning via system git`);
+    cloneWithGit(gitBin, source, tmp);
+  } else {
+    console.log(`[prepare] ${source.path}: cloning via isomorphic-git (no system git)`);
+    await cloneWithIsomorphicGit(source, tmp);
   }
-  run(GIT_BIN, ["-C", tmp, "checkout", source.commit], PKG_ROOT);
 
   // Drop the inner git dir: this is vendored content, not a repository. Leaving it
   // would make the package look like a repo and can confuse later tooling.
@@ -311,6 +326,69 @@ function fetchSource(source) {
   renameSync(tmp, dest);
   console.log(`[prepare] ${source.path}: ready at ${source.commit.slice(0, 12)}`);
   return true;
+}
+
+/** System-git backend: shallow clone, then fetch and check out the exact pin. */
+function cloneWithGit(gitBin, source, tmp) {
+  run(gitBin, ["clone", "--depth", "1", source.url, tmp], PKG_ROOT);
+
+  // The pinned commit may be older than HEAD, so deepen until it is reachable.
+  // `--depth 1` alone would fail for any commit that is not the branch tip.
+  try {
+    run(gitBin, ["-C", tmp, "fetch", "--depth", "1", "origin", source.commit], PKG_ROOT);
+  } catch {
+    // Fall back to a full fetch: shallow fetch of a specific SHA is not supported
+    // by every server configuration.
+    run(gitBin, ["-C", tmp, "fetch", "--unshallow"], PKG_ROOT);
+  }
+  run(gitBin, ["-C", tmp, "checkout", source.commit], PKG_ROOT);
+}
+
+/**
+ * Pure-JS backend. Same sequence as the git backend, expressed through
+ * isomorphic-git so no external binary is required.
+ *
+ * Loaded lazily: if system git handled every source, this module is never imported,
+ * which keeps the common path free of ~55 extra modules.
+ */
+async function cloneWithIsomorphicGit(source, tmp) {
+  const git = await import("isomorphic-git");
+  const http = (await import("isomorphic-git/http/node")).default;
+
+  await git.clone({
+    fs,
+    http,
+    dir: tmp,
+    url: source.url,
+    depth: 1,
+    singleBranch: true,
+    noTags: true,
+  });
+
+  try {
+    // As with system git: ask for the specific commit shallowly, then widen if the
+    // server refuses. `depth: 1` from the branch tip rarely contains an older SHA.
+    await git.fetch({
+      fs,
+      http,
+      dir: tmp,
+      url: source.url,
+      ref: source.commit,
+      depth: 1,
+      singleBranch: true,
+    });
+  } catch {
+    await git.fetch({ fs, http, dir: tmp, url: source.url });
+  }
+
+  // Verify the checkout landed on the pin rather than merely "some commit".
+  await git.checkout({ fs, dir: tmp, ref: source.commit, force: true });
+  const head = await git.resolveRef({ fs, dir: tmp, ref: "HEAD" });
+  if (head !== source.commit) {
+    throw new Error(
+      `${source.path}: checked out ${head.slice(0, 12)} but the pin is ${source.commit.slice(0, 12)}`,
+    );
+  }
 }
 
 function buildData() {
@@ -335,11 +413,14 @@ function buildData() {
   return true;
 }
 
-function main() {
-  if (!hasGit()) {
-    throw new Error(
-      "git 不在 PATH 上。本项目从 git URL 安装时需要克隆三个上游仓库（语料与两套技能），" +
-        "没有 git 无法完成安装。请先装 git，或改用已发布的 npm 包（若可用）。",
+async function main() {
+  // No git is no longer fatal — the pure-JS backend handles that case. What is
+  // fatal is having NEITHER, which cannot happen: isomorphic-git ships as a
+  // dependency. The message below only fires if the dependency itself is missing.
+  const gitBin = resolveGit();
+  if (gitBin === null) {
+    console.log(
+      "[prepare] 系统里没有 git —— 改用 isomorphic-git（纯 JS）克隆，安装照常进行。",
     );
   }
 
@@ -353,7 +434,7 @@ function main() {
 
   let fetched = 0;
   for (const source of sources) {
-    if (fetchSource(source)) fetched++;
+    if (await fetchSource(source)) fetched++;
   }
 
   const built = buildData();
@@ -363,9 +444,9 @@ function main() {
   );
 }
 
-try {
-  main();
-} catch (error) {
+// `main` is async now (the pure-JS backend is promise-based), so the catch has to
+// hang off the promise rather than a bare try/catch around the call.
+main().catch((error) => {
   console.error("\n[prepare] 安装中止 —— 这个包现在不可用。");
   console.error(`[prepare] 原因：${error?.message ?? error}\n`);
   console.error(
@@ -373,4 +454,4 @@ try {
       "让你先看到失败比事后在会话里遇到更好。\n",
   );
   process.exit(1);
-}
+});
