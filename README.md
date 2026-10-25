@@ -44,8 +44,7 @@ dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
 用 codeload 的 tarball 地址，pnpm 会直接走 HTTP 下载，不问 git：
 
 ```bash
-dsh plugin --profile web add \
-  https://codeload.github.com/VRChatCN-Kipfel/dsh-vrchat/tar.gz/refs/tags/v1.0.0-alpha.3
+dsh plugin --profile web add https://codeload.github.com/VRChatCN-Kipfel/dsh-vrchat/tar.gz/refs/tags/v1.0.0-alpha.3
 ```
 
 这条路**必须**同时在 profile 的 `pnpm-workspace.yaml` 里允许脚本执行，否则 pnpm 会拒：
