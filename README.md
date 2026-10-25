@@ -15,34 +15,64 @@
 
 ### 先确认前置条件
 
-安装过程会**从 GitHub 拉三个上游仓库**（语料与两套技能），所以需要：
+安装过程会**从 GitHub 拉三个上游仓库**（语料与两套技能），需要：
 
 | 需要 | 为什么 |
 |---|---|
-| **git 在 PATH 上** | 三个上游仓库要 clone；没有 git 装不上 |
-| **能访问 github.com** | 同上；离线环境装不了，会明确报错而不是装个残缺的 |
+| **能访问 github.com** | 三个上游仓库要下载；离线环境装不了，会明确报错而不是装个残缺的 |
 | **Node.js 18+** | 安装钩子要跑构建（DSH 自带 node，通常无需另装） |
+| **git** | **可选**——见下方两条安装路径 |
 
-装的时候会花 **40 秒到 1 分钟**，主要时间在拉语料。这不是卡住。
+装的时候会花 **1 到 4 分钟**，主要时间在拉语料。这不是卡住。
 
-⚠️ **pnpm 需要允许执行安装脚本。** 本插件在 `prepare` 阶段克隆上游仓库并构建数据，
-pnpm 默认会拦下这类脚本。Web profile 默认已经允许（`dangerouslyAllowAllBuilds: true`），
-**但其它 profile 可能没有**。如果安装时报：
+### 装：两条路径，看你有没有 git
 
-```
-ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED ... is not in the "onlyBuiltDependencies" allowlist
-```
-
-就在该 profile 的 `pnpm-workspace.yaml` 里加一行 `dangerouslyAllowAllBuilds: true`，
-或把 `dsh-vrchat` 加进 `onlyBuiltDependencies`。
-
-### 装
+**路径 A —— 有 git（推荐，最省事）**
 
 ```bash
 dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
 ```
 
-Web GUI 也可以从**插件面板**装。装完**重启 DSH Desktop**。
+这条路会跟随 `main` 分支的最新提交。要固定版本就加 `#v1.0.0-alpha.3`。
+
+> 为什么需要 git：pnpm 解析 `github:` 这种写法时会先跑 `git ls-remote` 去问那个
+> 仓库有哪些 ref，**这一步在下载任何东西之前**。所以没有 git 会直接失败在解析阶段，
+> 跟我们自己的安装钩子无关。
+
+**路径 B —— 没有 git（绕开 `git ls-remote`）**
+
+用 codeload 的 tarball 地址，pnpm 会直接走 HTTP 下载，不问 git：
+
+```bash
+dsh plugin --profile web add \
+  https://codeload.github.com/VRChatCN-Kipfel/dsh-vrchat/tar.gz/refs/tags/v1.0.0-alpha.3
+```
+
+这条路**必须**同时在 profile 的 `pnpm-workspace.yaml` 里允许脚本执行，否则 pnpm 会拒：
+
+```yaml
+onlyBuiltDependencies:
+  - dsh-vrchat
+```
+
+（实测：无 git 环境下这条路 3 分半装完，414 页语料 + `data/` 12 个产物齐全。
+把 URL 里的 `refs/tags/v1.0.0-alpha.3` 换成 `refs/heads/main` 就是跟最新。）
+
+**两条路都会下载三个上游仓库**（语料和两套技能）。区别只在"问 git 要 ref"还是
+"直接 HTTP 下 tarball"。装完之后，插件本身的克隆动作**两种情况下都不需要系统 git**
+—— 它自带一个纯 JS 的实现兜底。
+
+⚠️ **其它 profile 可能没有 `dangerouslyAllowAllBuilds`。** Web profile 默认有，
+别的 profile 不一定。如果安装时报：
+
+```
+ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED ... is not in the "onlyBuiltDependencies" allowlist
+```
+
+按上面路径 B 的 `pnpm-workspace.yaml` 片段加上 `dsh-vrchat` 即可。
+
+Web GUI 也可以从**插件面板**装（面板走的是路径 A，所以同样需要 git）。
+装完**重启 DSH Desktop**。
 
 ### 启用专家人设
 
