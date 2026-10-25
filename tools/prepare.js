@@ -35,9 +35,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { readFileSync } from "node:fs";
-// isomorphic-git wants the whole `fs` namespace (`fs.promises.readFile` etc.), not
-// the handful of named helpers imported above.
-import * as fs from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -269,24 +266,18 @@ function isPopulated(dir, expect) {
  * the destination untouched: readers see either the previous state or the complete
  * one, never a half-filled directory.
  *
- * TWO BACKENDS, and the order matters:
- *
- *   · system `git` when it exists — fastest, and it is what the user will use later
- *     for real work anyway;
- *   · `isomorphic-git` (pure JS) otherwise.
- *
- * The fallback is not a nicety. Installation is a PERFECT dependency cycle without
- * it: `prepare` must clone three repos, cloning needs git, and the guidance that
- * would let the agent install git lives in this plugin's persona — which only
- * exists after the install has already succeeded. A user with no git therefore
- * could not install at all. Pure-JS cloning breaks the cycle: installing needs no
- * external binary, and system git becomes a convenience rather than a prerequisite.
- *
- * Verified against the real API before wiring in: clone(depth/singleBranch/noTags)
- * → fetch(ref: <sha>, depth: 1) → checkout(ref: <sha>) lands the exact pinned commit
- * with the expected files, using no system git (1.7s for the smallest source).
+ * This requires a working system `git`. A pure-JS fallback (isomorphic-git) was
+ * implemented and then removed: DSH's generation validator rejects it. That package
+ * reaches `readable-stream`, whose own dependencies are named `buffer`, `events`,
+ * `process` and `string_decoder` — all of which are ALSO Node builtin module names.
+ * The validator calls `require.resolve("buffer")`, gets the bare string `"buffer"`
+ * (the builtin wins over the installed npm package), and then fails its
+ * "is this inside the generation root" test. The four packages were in fact
+ * installed correctly; only the bare-name comparison is wrong. Since that check runs
+ * on every dependency of every package in the generation, no amount of declaring
+ * those packages ourselves avoids it.
  */
-async function fetchSource(source) {
+function fetchSource(source) {
   const dest = join(PKG_ROOT, ...source.path.split("/"));
   if (isPopulated(dest, source.expect)) {
     console.log(`[prepare] ${source.path}: already present`);
@@ -303,14 +294,7 @@ async function fetchSource(source) {
   const tmp = `${dest}.prepare-tmp-${Date.now()}`;
   if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true });
 
-  const gitBin = resolveGit();
-  if (gitBin !== null) {
-    console.log(`[prepare] ${source.path}: cloning via system git`);
-    cloneWithGit(gitBin, source, tmp);
-  } else {
-    console.log(`[prepare] ${source.path}: cloning via isomorphic-git (no system git)`);
-    await cloneWithIsomorphicGit(source, tmp);
-  }
+  cloneWithGit(GIT_BIN, source, tmp);
 
   // Drop the inner git dir: this is vendored content, not a repository. Leaving it
   // would make the package look like a repo and can confuse later tooling.
@@ -344,53 +328,6 @@ function cloneWithGit(gitBin, source, tmp) {
   run(gitBin, ["-C", tmp, "checkout", source.commit], PKG_ROOT);
 }
 
-/**
- * Pure-JS backend. Same sequence as the git backend, expressed through
- * isomorphic-git so no external binary is required.
- *
- * Loaded lazily: if system git handled every source, this module is never imported,
- * which keeps the common path free of ~55 extra modules.
- */
-async function cloneWithIsomorphicGit(source, tmp) {
-  const git = await import("isomorphic-git");
-  const http = (await import("isomorphic-git/http/node")).default;
-
-  await git.clone({
-    fs,
-    http,
-    dir: tmp,
-    url: source.url,
-    depth: 1,
-    singleBranch: true,
-    noTags: true,
-  });
-
-  try {
-    // As with system git: ask for the specific commit shallowly, then widen if the
-    // server refuses. `depth: 1` from the branch tip rarely contains an older SHA.
-    await git.fetch({
-      fs,
-      http,
-      dir: tmp,
-      url: source.url,
-      ref: source.commit,
-      depth: 1,
-      singleBranch: true,
-    });
-  } catch {
-    await git.fetch({ fs, http, dir: tmp, url: source.url });
-  }
-
-  // Verify the checkout landed on the pin rather than merely "some commit".
-  await git.checkout({ fs, dir: tmp, ref: source.commit, force: true });
-  const head = await git.resolveRef({ fs, dir: tmp, ref: "HEAD" });
-  if (head !== source.commit) {
-    throw new Error(
-      `${source.path}: checked out ${head.slice(0, 12)} but the pin is ${source.commit.slice(0, 12)}`,
-    );
-  }
-}
-
 function buildData() {
   const manifestPath = join(PKG_ROOT, "data", "manifest.json");
   const allThere = DATA_ARTIFACTS.every((rel) => existsSync(join(PKG_ROOT, "data", rel)));
@@ -413,14 +350,12 @@ function buildData() {
   return true;
 }
 
-async function main() {
-  // No git is no longer fatal — the pure-JS backend handles that case. What is
-  // fatal is having NEITHER, which cannot happen: isomorphic-git ships as a
-  // dependency. The message below only fires if the dependency itself is missing.
-  const gitBin = resolveGit();
-  if (gitBin === null) {
-    console.log(
-      "[prepare] 系统里没有 git —— 改用 isomorphic-git（纯 JS）克隆，安装照常进行。",
+function main() {
+  if (!hasGit()) {
+    throw new Error(
+      "git 不在 PATH 上。安装本插件需要克隆三个上游仓库（语料与两套技能），没有 git 装不上。" +
+        "请先装 git：https://git-scm.com/download/win（装到任意位置，确保在 PATH 上），" +
+        "或改用不需要 git 的 tarball 安装法（见 README 的「路径 B」）。",
     );
   }
 
@@ -434,7 +369,7 @@ async function main() {
 
   let fetched = 0;
   for (const source of sources) {
-    if (await fetchSource(source)) fetched++;
+    if (fetchSource(source)) fetched++;
   }
 
   const built = buildData();
@@ -444,9 +379,9 @@ async function main() {
   );
 }
 
-// `main` is async now (the pure-JS backend is promise-based), so the catch has to
-// hang off the promise rather than a bare try/catch around the call.
-main().catch((error) => {
+try {
+  main();
+} catch (error) {
   console.error("\n[prepare] 安装中止 —— 这个包现在不可用。");
   console.error(`[prepare] 原因：${error?.message ?? error}\n`);
   console.error(
@@ -454,4 +389,4 @@ main().catch((error) => {
       "让你先看到失败比事后在会话里遇到更好。\n",
   );
   process.exit(1);
-});
+}

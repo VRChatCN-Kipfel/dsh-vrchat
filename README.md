@@ -19,59 +19,31 @@
 
 | 需要 | 为什么 |
 |---|---|
-| **能访问 github.com** | 三个上游仓库要下载；离线环境装不了，会明确报错而不是装个残缺的 |
+| **git** | 安装钩子要用它克隆三个上游仓库，没有就装不上 |
+| **能访问 github.com** | 同上；离线环境装不了，会明确报错而不是装个残缺的 |
 | **Node.js 18+** | 安装钩子要跑构建（DSH 自带 node，通常无需另装） |
-| **git** | **可选**——见下方两条安装路径 |
 
-装的时候会花 **1 到 4 分钟**，主要时间在拉语料。这不是卡住。
+**没有 git 就先装**（会弹一次 UAC，点「是」；装完新开的进程才认 PATH）：
 
-### 装：两条路径，看你有没有 git
+```powershell
+winget install --id Git.Git --silent
+```
 
-**路径 A —— 有 git（推荐，最省事）**
+### 装
+
+pnpm 默认不许包在安装时执行脚本，而本插件要靠安装钩子克隆上游仓库。放行它——
+**一行就行**，把变量和安装写在同一条命令里：
+
+```powershell
+$env:npm_config_dangerously_allow_all_builds="true"; dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
+```
 
 ```bash
-dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
+# bash / zsh
+npm_config_dangerously_allow_all_builds=true && dsh plugin --profile web add github:VRChatCN-Kipfel/dsh-vrchat
 ```
 
-这条路会跟随 `main` 分支的最新提交。要固定版本就加 `#v1.0.0-alpha.3`。
-
-> 为什么需要 git：pnpm 解析 `github:` 这种写法时会先跑 `git ls-remote` 去问那个
-> 仓库有哪些 ref，**这一步在下载任何东西之前**。所以没有 git 会直接失败在解析阶段，
-> 跟我们自己的安装钩子无关。
-
-**路径 B —— 没有 git（绕开 `git ls-remote`）**
-
-用 codeload 的 tarball 地址，pnpm 会直接走 HTTP 下载，不问 git：
-
-```bash
-dsh plugin --profile web add https://codeload.github.com/VRChatCN-Kipfel/dsh-vrchat/tar.gz/refs/tags/v1.0.0-alpha.3
-```
-
-这条路**必须**同时在 profile 的 `pnpm-workspace.yaml` 里允许脚本执行，否则 pnpm 会拒：
-
-```yaml
-onlyBuiltDependencies:
-  - dsh-vrchat
-```
-
-（实测：无 git 环境下这条路 3 分半装完，语料 + `data/` 12 个产物齐全。
-把 URL 里的 `refs/tags/v1.0.0-alpha.3` 换成 `refs/heads/main` 就是跟最新。）
-
-**两条路都会下载三个上游仓库**（语料和两套技能）。区别只在"问 git 要 ref"还是
-"直接 HTTP 下 tarball"。装完之后，插件本身的克隆动作**两种情况下都不需要系统 git**
-—— 它自带一个纯 JS 的实现兜底。
-
-⚠️ **其它 profile 可能没有 `dangerouslyAllowAllBuilds`。** Web profile 默认有，
-别的 profile 不一定。如果安装时报：
-
-```
-ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED ... is not in the "onlyBuiltDependencies" allowlist
-```
-
-按上面路径 B 的 `pnpm-workspace.yaml` 片段加上 `dsh-vrchat` 即可。
-
-Web GUI 也可以从**插件面板**装（面板走的是路径 A，所以同样需要 git）。
-装完**重启 DSH Desktop**。
+**这个变量只对当前终端窗口有效**
 
 ### 启用专家人设
 
@@ -195,8 +167,7 @@ vrc-get resolve -p "<刚建的工程>"
   **Blender 不是默认起点**
 - **在 Blender / Unity 里动手时闭环**：改动 → 摆相机（`manage_camera` 一类原生工具）
   → 截图 → 读图 → 判断严重性 → 返工。**不许埋头写代码**
-- **git 回滚点**：动工程前先建基线，改坏了能回退。没装 git 会**静默安装**
-  （注意会弹一次 UAC），并劝你不要用「复制工程目录」当备份
+- **git 回滚点**：动工程前先建基线，改坏了能回退，并劝你不要用「复制工程目录」当备份
 
 ### 交付：做到哪、什么做不了
 
@@ -320,6 +291,8 @@ node tools/token-df.cjs rust 同步 quest              # 文档频率
 
 ## 许可
 
-MIT。语料来自 [`RhineLab-magellan/VRChat-Agent-Creator-Library`](https://github.com/RhineLab-magellan/VRChat-Agent-Creator-Library)，
-两套技能分别来自 `VRChatCN-Kipfel/vrchat-world-codex-skills` 与 `XiaoboooOvO/VRChatEditorSkill`，
+**MIT**
+
+语料来自 [`RhineLab-magellan/VRChat-Agent-Creator-Library`](https://github.com/RhineLab-magellan/VRChat-Agent-Creator-Library)，
+两套技能分别来自 [`XiaoboooOvO/vrchat-world-codex-skills`](https://github.com/XiaoboooOvO/vrchat-world-codex-skills) 与 [`XiaoboooOvO/VRChatEditorSkill`](https://github.com/XiaoboooOvO/VRChatEditorSkill)，
 均以 submodule 原样引入，许可随各自仓库。

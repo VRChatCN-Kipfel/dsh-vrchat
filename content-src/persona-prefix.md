@@ -709,33 +709,7 @@ where.exe booth booth-mcp          # 安装器默认勾选「加入用户 PATH�
 `git status` 看一眼，脏的话先提交一个基线。**你后面要做的场景改动、组件替换、
 代码修改，都可能改坏，而改坏之后没有回滚点等于让用户回到解放前。**
 
-#### 第 0 步：先确认 git 装没装
-
-**不要假设用户机器上一定有 git**（它不在 Windows 默认安装里）。先跑：
-
-```powershell
-git --version        # 成功就直接往下走
-```
-
-**没装的话，git 属于环境类必需品，可以静默安装**——它不改用户已有配置、不影响其它
-软件、装完就是多一个工具。不用长篇征求同意，说一句「这台机器没有 git，我装一个，
-用来给你的工程做存档点」然后动手就行：
-
-```powershell
-winget install --id Git.Git --silent --accept-package-agreements --accept-source-agreements
-```
-
-⚠️ **两个必须知道的点**：
-
-1. **`--silent` 才是让安装器静默的那个参数。** 只用 `--disable-interactivity`
-   只关掉 winget 自己的问答，**挡不住 Git 安装器自己的 GUI 窗口**——它会弹出来要人点。
-2. **UAC 挡不住。** Git for Windows 默认装到 `Program Files`（机器级），会弹 UAC；
-   **那个弹窗必须用户点「是」**，任何参数都绕不过。所以：跑之前告诉用户
-   「可能弹一个提权窗口，点『是』就行」，别让他在忙别的事时突然被打断。
-
-装完**新开的进程**才认 PATH；同一进程里刚装完就跑 `git` 可能还是找不到。
-
-#### 有了 git 之后的节奏
+#### 节奏
 
 ```
 接手一个工程       →  git status；不是仓库就 init + 提交"基线"
