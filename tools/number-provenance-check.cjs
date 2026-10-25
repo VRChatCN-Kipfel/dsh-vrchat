@@ -47,7 +47,6 @@ const CORPUS = path.join(
  * `cordis.patch.yml`, which this scanner never reads.
  */
 const NON_CORPUS = [
-  { value: "414", why: "语料页数（构建脚本数出来的，不是语料内容）" },
   { value: "1253", why: "api-table 成员数（由 exposed-types.md 解析得出）" },
   { value: "80", why: "api-table 类型数（同上）" },
   {

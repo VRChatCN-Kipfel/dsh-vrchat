@@ -36,7 +36,8 @@ async function main() {
       }
       return n;
     })(found, 0);
-    check("含 414 个 markdown 页", mdCount === 414, `${mdCount} 页`);
+    // No literal: this counts files in a submodule that gains pages over time.
+    check("语料里有 markdown 页", mdCount > 0, `${mdCount} 页`);
   }
 
   check("空包根返回 null", mod.findCorpusRoot("") === null);

@@ -2,7 +2,7 @@
 
 > 状态：**已落地并在装机运行**（`dsh-vrchat-kb+0.29.0`）。本文档描述**当前实现**，不是设计稿。
 > 目标：主动注入 · 节省 token · 模型愿意来问。
-> 知识源：`VRChat-Agent-Creator-Library/`（git submodule，414 页 / 4023 KB）
+> 知识源：`VRChat-Agent-Creator-Library/`（git submodule，页数与体积随上游更新）
 >
 > **v0.2 的设计与最终实现不同。** 三处被推翻，留档在 §11：词表门控注入、`agent/pre-step`
 > 附加 T1、`tools/post-execute` 封口。它们都依赖「按轮修改 messages」，而实测发现这条路
@@ -96,7 +96,7 @@
 | `vrchat_kb_grep` | 精确定位符号 / 规则编号，给行号 |
 | `vrchat_kb_read` | 按行号读上下文。跳过页首 YAML 但**保留真实行号**，所以 grep 的 `Line 240` 可直接 `offset=240` |
 | `vrchat_kb_api` | 某 API 在 Udon 中是否暴露（80 类型 / 1253 成员）。**未收录 ≠ 不可用** |
-| `vrchat_kb_filter` | 按元数据筛页，而不是按正文搜。搜 `high`/`quest` 这类词会命中全部 414 页 |
+| `vrchat_kb_filter` | 按元数据筛页，而不是按正文搜。搜 `high`/`quest` 这类词会命中几乎所有页 |
 | `vrchat_kb_list` | 报告已加载的库、页数、分类与可信度分布、draft/deprecated 计数 |
 | `vrchat_kb_unity` | Unity 运行时状态：进程、项目归属、编辑器版本、lockfile、**许可证剩余天数**、疑似 MCP 端口 |
 | `vrchat_kb_scan` | 扫描产出代码的硬约束违例。**是报告不是判决** |
@@ -143,7 +143,7 @@ dsh-vrchat/                                ← 插件仓库根
 │   ├── t0-core.txt  t1-*.txt  domain-map.txt
 │   ├── always-load.txt                    ← 预设模式主体
 │   ├── persona-prefix.txt / persona-suffix.txt
-│   ├── index.json                         ← 414 页元数据，**无正文**
+│   ├── index.json                         ← 全量页元数据，**无正文**
 │   ├── api-table.json                     ← 80 类型 / 1253 成员
 │   └── keyword-routes.json                ← 上游 index.md 的话题→目录路由
 ├── lib/                                   ← 7 个模块（见下）

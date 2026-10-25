@@ -192,7 +192,7 @@ if (typeof prefix === "string") {
   // prompt does not name them, the agent falls back to grep and gets 414 hits.
   check("prefix 提到筛选工具", /vrchat_kb_filter/.test(prefix));
   check("prefix 提到列库工具", /vrchat_kb_list/.test(prefix));
-  check("说明元数据是筛选而非文本搜索", /结构化筛选/.test(prefix) && /命中全部 414 页/.test(prefix));
+  check("说明元数据是筛选而非文本搜索", /结构化筛选/.test(prefix) && /命中几乎所有页/.test(prefix));
   check("说明 read 行号不漂移", /行号仍是文件真实行号/.test(prefix));
 
   // The probe can be blind without being wrong: permissions and sessions hide
@@ -255,7 +255,7 @@ if (typeof prefix === "string") {
   check("不再断言 Quest 禁用 Unity Constraints", !/不能使用 Unity Constraints/.test(prefix));
   check("带宽分平台（PC 11 / Quest 5）", /11 KB\/s（PC）|11 KB\/s（PC）\/ 约 5/.test(prefix) || /约 5 KB\/s（Quest）/.test(prefix));
   check("5–10 倍只用于 GPU，不泛指", !/相差 5–10 倍的性能世界/.test(prefix));
-  check("工具段标明来源不同", /不在那 414 页里/.test(prefix));
+  check("工具段标明来源不同", /不在那份语料里/.test(prefix));
 
   // Every "why": a rule list without reasons reads as dogma.
   check("集合禁用带原因", /没有泛型集合运行时/.test(prefix));

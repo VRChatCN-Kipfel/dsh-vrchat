@@ -33,14 +33,26 @@ async function main() {
 
   // ── shipped index must stay intact WITHOUT the corpus ──────────────────
   const index = JSON.parse(fs.readFileSync(path.join(dataDir, "index.json"), "utf8"));
-  check("index.json 含 414 页", index.length === 414, String(index.length));
+  // The page count is NOT asserted against a literal. The upstream corpus is a
+  // submodule that gains pages (this check failed the day a 415th page landed), and
+  // a hardcoded number turns every upstream update into a red build that says
+  // nothing about whether the index is actually correct. What matters is that the
+  // index is non-empty and complete relative to itself, which the readability check
+  // below already proves page by page.
+  check("index.json 非空", index.length > 0, `${index.length} 页`);
   check("index.json 不携带正文", !Object.hasOwn(index[0], "body"));
   const conf = index.reduce((acc, entry) => {
     const key = entry.confidence ?? "unset";
     acc[key] = (acc[key] ?? 0) + 1;
     return acc;
   }, {});
-  check("置信度分布保留", conf.high === 204 && conf.medium === 208, JSON.stringify(conf));
+  // Likewise: the exact high/medium split moves whenever upstream reviews a page.
+  // Assert that the confidence field survived the build and covers every page.
+  check(
+    "每页都有 confidence",
+    (conf.high ?? 0) + (conf.medium ?? 0) + (conf.low ?? 0) === index.length,
+    JSON.stringify(conf),
+  );
 
   // ── store WITH the corpus ───────────────────────────────────────────────
   const store = search.createStore(dataDir, found);
@@ -54,7 +66,9 @@ async function main() {
 
   let readable = 0;
   for (const entry of index) if (store.bodyOf(entry.path) !== null) readable++;
-  check("全部 414 页可读", readable === 414, `${readable} 页`);
+  // Every indexed page must be readable — expressed as a comparison, not a literal,
+  // for the same reason as above.
+  check("索引里每一页都可读", readable === index.length, `${readable}/${index.length} 页`);
 
   // ── store WITHOUT the corpus: degrade, never throw ─────────────────────
   const bare = search.createStore(dataDir, null);

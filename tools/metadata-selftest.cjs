@@ -85,7 +85,14 @@ async function main() {
     dataDir: path.join(root, "data"),
   });
   check("描述列出库数", /已加载 1 个知识库/.test(described));
-  check("描述给出页数", /页数：414/.test(described));
+  // Compare against the index under test, not a literal — a hardcoded count measures
+  // the submodule revision, so every upstream page addition turns this red while the
+  // code is fine.
+  check(
+    "描述给出页数",
+    described.includes(`页数：${index.length}`),
+    `期望 页数：${index.length}`,
+  );
   check("描述给出分类分布", /world/.test(described) && /202/.test(described));
   check("描述给出可信度分布", /high 204/.test(described));
   check("描述提示 draft/deprecated", /draft 1 页 \/ deprecated 1 页/.test(described));

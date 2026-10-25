@@ -5,7 +5,7 @@
 **一次装好，你的 agent 就知道 Udon 的坑在哪、Quest 的线在哪、这个 SDK 包到底能不能用** ——
 而不是先编一个看起来合理的答案。
 
-- **414 页** VRChat 知识库，随包分发，离线可用
+- **数百页** VRChat 知识库，随包分发，离线可用（当前页数用 `/vrchat stats` 查）
 - **9 个工具**：查概念 / 定位行号 / 按元数据筛 / 查 Udon API 是否暴露 / 扫代码违例 / 探本机 Unity / **从零建工程**
 - **6 个技能**：World 设计-实施-核验流程、Avatar 审计流程、VPM 命令行、外部技能推荐表
 
@@ -55,7 +55,7 @@ onlyBuiltDependencies:
   - dsh-vrchat
 ```
 
-（实测：无 git 环境下这条路 3 分半装完，414 页语料 + `data/` 12 个产物齐全。
+（实测：无 git 环境下这条路 3 分半装完，语料 + `data/` 12 个产物齐全。
 把 URL 里的 `refs/tags/v1.0.0-alpha.3` 换成 `refs/heads/main` 就是跟最新。）
 
 **两条路都会下载三个上游仓库**（语料和两套技能）。区别只在"问 git 要 ref"还是
@@ -251,7 +251,7 @@ Animator、参数、预览、构建这类通用 Unity 词，于是它会去抢 W
 
 ## 数据从哪来
 
-**语料本体** —— `VRChat-Agent-Creator-Library/`（submodule，414 个裸 Markdown）。
+**语料本体** —— `VRChat-Agent-Creator-Library/`（submodule，数百个裸 Markdown）。
 它是插件本体的一部分，**不经 `data/`、不被重新序列化**：查询时按需打开命中的那几页。
 
 **派生数据** —— `data/`（构建产物）
@@ -262,7 +262,7 @@ Animator、参数、预览、构建这类通用 Unity 词，于是它会去抢 W
 | `t1-{world,avatar,shader}.txt` | 域块（手写策展） |
 | `domain-map.txt` | 覆盖地图 + 不覆盖声明 |
 | `always-load.txt` | 预设模式主体 |
-| `index.json` | 414 页元数据 + 上游 `confidence`（无正文） |
+| `index.json` | 全量页元数据 + 上游 `confidence`（无正文） |
 | `api-table.json` | SDK 3.10.3 已暴露清单（80 类型 / 1253 成员） |
 | `keyword-routes.json` | 话题→目录路由表（20 条） |
 

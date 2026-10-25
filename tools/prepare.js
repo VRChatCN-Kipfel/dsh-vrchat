@@ -59,7 +59,7 @@ const PKG_ROOT = join(ROOT, "..");
  * knowledge base differ between two machines.
  */
 const PINS = {
-  "VRChat-Agent-Creator-Library": "590a9f90833a6fe98044c10aea4fb86ed4876fc9",
+  "VRChat-Agent-Creator-Library": "71485c2b5fb20f81c6fca6f96673d821c352c646",
   "vendor/vrchat-world-codex-skills": "08ef020dde293882edaf6d94834d2f44839fb307",
   "vendor/vrchat-editor-skill": "6aa07769b56ccb0a4450ba90bab53aaf3c287869",
 };

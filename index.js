@@ -601,7 +601,7 @@ function apply(ctx, config) {
     defineTool({
       name: "vrchat_kb",
       description:
-        "查询本地 VRChat 创作知识库（414 页：Udon/UdonSharp、网络同步、Persistence、Avatar/PhysBone/Shader、Udon API、Quest 平台、设计模式、工程红线）。" +
+        "查询本地 VRChat 创作知识库（Udon/UdonSharp、网络同步、Persistence、Avatar/PhysBone/Shader、Udon API、Quest 平台、设计模式、工程红线）。" +
         "在以下情况调用：要写 UdonSharp 代码、修改或优化 Avatar、配置 Shader、处理同步与持久化、判断某 API 在 Quest 上能否用、不确定某个 VRChat 组件/工具的用法。" +
         "返回的是合并后的完整约束与原文摘录（不是文件路径列表），所以一次调用即够——不要针对同一问题反复查询。",
       parameters: {
@@ -691,7 +691,7 @@ function apply(ctx, config) {
     defineTool({
       name: "vrchat_kb_grep",
       description:
-        "在 VRChat 知识库内搜索（414 页），返回按文件分组、带行号的命中行。" +
+        "在 VRChat 知识库内搜索，返回按文件分组、带行号的命中行。" +
         "参数与行为对齐内置 grep：pattern / include，命中格式 `path` + `Line N: 内容`。" +
         "拿到行号后用 vrchat_kb_read 读取该处上下文。用于精确定位某个符号、规则编号或关键词。",
       parameters: {
@@ -1159,7 +1159,7 @@ function apply(ctx, config) {
       name: "vrchat_kb_filter",
       description:
         "按元数据筛选知识库页面，返回匹配的库内路径与标题（不含正文）。用于「哪些页是 high 可信度」「Quest 相关的 deprecated 页有哪些」" +
-        "这类结构化问题——这类词在每页的 YAML 元数据里，用 grep 搜会命中全部 414 页，只有筛选才有意义。\n" +
+        "这类结构化问题——这类词在每页的 YAML 元数据里，用 grep 搜会命中几乎所有页，只有筛选才有意义。\n" +
         "\n" +
         "可筛选字段：type / category / confidence / status / tags / title / path。" +
         "多个字段之间是 AND；tags 给多个值时要求全部命中。字段名拼错会报错并列出可用字段，不会静默返回全部。\n" +

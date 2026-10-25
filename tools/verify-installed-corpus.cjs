@@ -41,7 +41,9 @@ async function main() {
   const dataDir = path.join(pkgRoot, "data");
   const store = search.createStore(dataDir, corpus);
   check("store 有 corpusRoot", store.corpusRoot !== null);
-  check("索引 414 页", store.index.length === 414, String(store.index.length));
+  // No literal page count: the upstream corpus is a submodule that grows, and a
+  // hardcoded number measures the submodule revision rather than the install.
+  check("索引非空", store.index.length > 0, `${store.index.length} 页`);
 
   const sample = "entities/api/not-exposed.md";
   const body = store.bodyOf(sample);
@@ -49,7 +51,7 @@ async function main() {
 
   let readable = 0;
   for (const entry of store.index) if (store.bodyOf(entry.path) !== null) readable++;
-  check("全部 414 页可读", readable === 414, `${readable} 页`);
+  check("索引里每一页都可读", readable === store.index.length, `${readable}/${store.index.length} 页`);
 
   // ── retrieval and the docs pair work against the installed corpus ──────
   const hit = search.answer(store, "Udon 同步变量非 Owner 写入", { limit: 2, charBudget: 1200 });

@@ -43,7 +43,14 @@ async function main() {
     dataDir: path.join(root, "data"),
   });
   check("列出 1 个库", /已加载 1 个知识库/.test(described));
-  check("给出页数 414", /页数：414/.test(described));
+  // Compare against the index under test, not a literal: a hardcoded count
+  // measures the submodule revision, so every upstream page addition turns this
+  // red while the code is fine.
+  check(
+    "描述给出的页数与索引一致",
+    described.includes(`页数：${store.index.length}`),
+    `期望 页数：${store.index.length}`,
+  );
   check("给出分类分布且含 world 计数", /world/.test(described) && /\b202\b/.test(described));
   check("给出 draft/deprecated 提醒", /deprecated 1 页/.test(described));
   check("不泄漏本机绝对路径", !/[A-Za-z]:[\\/]/.test(described));
@@ -54,7 +61,7 @@ async function main() {
   const bareList = mod.describeLibraries({ manifest: meta, index: bare.index, corpusRoot: bare.corpusRoot, dataDir: "" });
   check("无语料时 list 说 0 个库", /已加载 0 个知识库/.test(bareList));
   check("无语料时 list 给出原因", /缺少自带语料目录/.test(bareList));
-  check("无语料时 filter 的索引仍可用", bare.index.length === 414, `${bare.index.length} 页`);
+  check("无语料时 filter 的索引仍可用", bare.index.length > 0, `${bare.index.length} 页`);
 
   // ── paths returned must be library-relative ────────────────────────────
   const paths = mod.filterIndex(store.index, { category: "world" }).slice(0, 50).map((e) => e.path);
