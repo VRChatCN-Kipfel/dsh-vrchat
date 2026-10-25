@@ -266,16 +266,12 @@ function isPopulated(dir, expect) {
  * the destination untouched: readers see either the previous state or the complete
  * one, never a half-filled directory.
  *
- * This requires a working system `git`. A pure-JS fallback (isomorphic-git) was
- * implemented and then removed: DSH's generation validator rejects it. That package
- * reaches `readable-stream`, whose own dependencies are named `buffer`, `events`,
- * `process` and `string_decoder` — all of which are ALSO Node builtin module names.
- * The validator calls `require.resolve("buffer")`, gets the bare string `"buffer"`
- * (the builtin wins over the installed npm package), and then fails its
- * "is this inside the generation root" test. The four packages were in fact
- * installed correctly; only the bare-name comparison is wrong. Since that check runs
- * on every dependency of every package in the generation, no amount of declaring
- * those packages ourselves avoids it.
+ * Requires a working system `git`. Tried a pure-JS clone (isomorphic-git) so that a
+ * machine without git could still install; it cannot work under DSH's generation
+ * loader, which rejects packages whose dependency names collide with Node builtins.
+ * `git` is therefore a hard prerequisite for installation, and the README says so —
+ * do not re-attempt a JS fallback without first checking whether that loader rule
+ * has changed.
  */
 function fetchSource(source) {
   const dest = join(PKG_ROOT, ...source.path.split("/"));

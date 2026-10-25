@@ -255,7 +255,9 @@ JSON 往返会把 tag 退化成字符串，而 `disabled: "process.platform === 
 
 ---
 
-## 11. 与 v0.2 设计的三处分歧（留档）
+## 11. 已放弃的设计（留档）
+
+四条：三条来自 v0.2 的原设计主线，一条来自后来尝试的纯 JS 克隆。
 
 原设计有一条主线：**用 `agent/pre-step` 在每轮插入 T1 域块，用 `tools/post-execute` 封口
 并同轮去重**。实测后放弃，理由如下。
@@ -281,6 +283,41 @@ JSON 往返会把 tag 退化成字符串，而 `disabled: "process.platform === 
 - **compaction 让记忆失效。** compaction 用 `surfaceOp: replace` 换掉消息跨度，先前的
   摘录已经不在模型可见范围内了。此时回答「已经查过」等于递给它一个无法核实的断言。
   所以台账在 `compaction/start` 时 bump 代，旧查询只在同一代内计数。
+
+**④ 纯 JS 克隆（isomorphic-git）放弃：撞上生成加载器的依赖封闭性检查。**
+
+初衷是解开一个死锁：`prepare` 要克隆三个上游仓库 → 克隆要 git → 而「让 agent 去装 git」
+这条指引写在本插件的 persona 里，只有装成功之后才存在。所以**没有 git 的机器装不上，
+而唯一能教它装 git 的东西还没被装上**。
+
+`isomorphic-git` 在 API 层面完全可用（实测：clone `depth:1` 1.7 秒 →
+`fetch({ref: sha, depth: 1})` → `checkout({ref: sha})`，HEAD 精确等于钉点，
+文件齐全，全程不碰系统 git）。**装不上的原因是 DSH 的生成加载器**：
+
+```
+readable-stream: buffer resolves outside the generation and installation closure
+readable-stream: events / process / string_decoder   同样
+```
+
+`isomorphic-git` 的 `http/node` 里 `require('readable-stream')`，而 `readable-stream`
+的依赖叫 `buffer` / `events` / `process` / `string_decoder` —— **这四个名字同时也是 Node
+内置模块名**。加载器的检查是：
+
+```js
+resolved = requireFromPackage.resolve("buffer")     // → 裸字符串 "buffer"
+isInsideDirectory(generationRoot, "buffer")         // → false，判定越界
+```
+
+内置模块优先于已安装的 npm 包，所以拿到的是裸名而不是真实路径。这四个包
+**实际都正确装在生成目录里**（`buffer@6.0.3` / `events@3.3.0` / `process@0.11.10` /
+`string_decoder@1.3.0`），加个尾斜杠就能解析到真实路径——错的只是那个裸名比对。
+
+但这个检查跑在生成内**每一个包的每一个依赖**上，所以「我们自己显式声明这几个包」
+也躲不掉。结论：`git` 是安装的硬前提，README 照此写。
+
+**若以后要重试**：先确认加载器对「依赖名与内置模块同名的包」是否已放宽，
+再考虑引入。否则换一个不依赖 `readable-stream` 的实现，或者自己写一个只做
+shallow-clone 的最小 HTTP 客户端。
 
 ---
 
