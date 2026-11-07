@@ -68,7 +68,13 @@ check("persona 行存在且 prefix 是字符串", typeof prefix === "string");
 if (typeof prefix === "string") {
   check("prefix 非空", prefix.trim().length > 200, `${prefix.length} 字符`);
   check("首行是专家声明", prefix.startsWith("你是 VRChat"), prefix.split("\n")[0]);
-  check("保留 {{cwd}}", prefix.includes("{{cwd}}"));
+  // Was `保留 {{cwd}}` — an assertion that the prompt VARIABLE must be present. It
+  // was wrong: `interpolate()` throws on any `{{name}}` the section did not register,
+  // and `dsh-persona` registers none, so a variable here is a full-turn failure on
+  // hosts that do not provide it. See PR #2. Checked in the installed tree as well as
+  // in the source patch, because this file is what proves what actually shipped.
+  check("不含 frontmatter", !prefix.startsWith("---"), prefix.slice(0, 16));
+  check("不含 prompt 变量", !/\{\{[a-z][a-z0-9_]*\}\}/.test(prefix), (prefix.match(/\{\{[^}]*\}\}/g) ?? []).join(", "));
   check("保留章节标题", (prefix.match(/^## /gm) ?? []).length >= 4);
   check("保留列表项", (prefix.match(/^- /gm) ?? []).length >= 8);
   check("保留行内代码", prefix.includes("`DataList`"));
