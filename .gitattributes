@@ -1,0 +1,32 @@
+# Line endings, fixed by policy rather than by each machine's `core.autocrlf`.
+#
+# Why this file exists: `core.autocrlf=true` (the default on Windows) rewrites every
+# text file to CRLF on checkout. `tools/build-knowledge.mjs` strips YAML frontmatter
+# by testing `startsWith("---\n")`, which is false for `---\r\n` — so on Windows the
+# frontmatter block was being spliced into the persona prompt instead of removed,
+# and nothing noticed because the check that catches it only ran against a `data/`
+# tree built on a machine with LF. The parser now normalises CRLF itself (so it is
+# correct regardless of how the tree was produced), and this file stops the churn at
+# the source.
+
+# Normalise everything to LF in the repository.
+* text=auto eol=lf
+
+# Binary: never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+
+# Windows-only scripting that genuinely needs CRLF to run.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

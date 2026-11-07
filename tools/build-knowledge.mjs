@@ -266,13 +266,27 @@ async function readText(path) {
   return (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
 }
 
-/** Extract YAML frontmatter as flat scalars plus a list of list-valued keys. */
+/**
+ * Extract YAML frontmatter as flat scalars plus a list of list-valued keys.
+ *
+ * Normalise line endings FIRST. The previous version tested `startsWith("---\n")`,
+ * which is false for a CRLF checkout — and on Windows `core.autocrlf=true` rewrites
+ * every text file to CRLF on checkout, so the whole frontmatter block (including the
+ * `title:` and `category:` keys) was being spliced into the persona text instead of
+ * being stripped. Linux/macOS never saw it, which is why it survived: the check that
+ * would have caught it ("prefix 首行是专家声明") only ran against a `data/` tree that
+ * had been built somewhere else.
+ *
+ * Normalising here rather than relying on `.gitattributes` alone keeps the build
+ * correct for a tree produced by any tool, not just by git.
+ */
 function parseFrontmatter(raw) {
-  if (!raw.startsWith("---\n")) return { meta: {}, body: raw };
-  const end = raw.indexOf("\n---", 3);
-  if (end === -1) return { meta: {}, body: raw };
-  const block = raw.slice(4, end);
-  const body = raw.slice(end + 4).replace(/^\n+/, "");
+  const text = raw.replace(/\r\n/g, "\n");
+  if (!text.startsWith("---\n")) return { meta: {}, body: text };
+  const end = text.indexOf("\n---", 3);
+  if (end === -1) return { meta: {}, body: text };
+  const block = text.slice(4, end);
+  const body = text.slice(end + 4).replace(/^\n+/, "");
   const meta = {};
   let currentList = null;
   for (const line of block.split("\n")) {
@@ -349,7 +363,12 @@ async function main() {
   const personaPrefix = (() => {
     try {
       const raw = readFileSync(join(contentSrc, "persona-prefix.md"), "utf8");
-      return raw.replace(/^---[\s\S]*?---\n/, "").trim();
+      // Strip frontmatter via the shared parser, NOT a second inline regex. The old
+      // one-liner here (`/^---[\s\S]*?---\n/`) only matched an LF line ending, so on
+      // a CRLF checkout nothing was stripped and the YAML header shipped as persona
+      // text. Having two implementations of "remove frontmatter" is how one of them
+      // stayed broken; this now goes through the same function the corpus pages use.
+      return parseFrontmatter(raw).body.trim();
     } catch {
       return "";
     }

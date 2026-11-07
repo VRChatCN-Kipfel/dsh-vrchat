@@ -181,7 +181,14 @@ check("prefix 是字符串", typeof prefix === "string");
 check("prefix 非空", typeof prefix === "string" && prefix.trim().length > 200, `${prefix?.length ?? 0} 字符`);
 if (typeof prefix === "string") {
   check("prefix 首行是专家声明", prefix.startsWith("你是 VRChat"), prefix.slice(0, 24));
-  check("prefix 保留 {{cwd}}", prefix.includes("{{cwd}}"));
+  check("prefix 不含 frontmatter", !prefix.startsWith("---"), prefix.slice(0, 16));
+  // Prompt variables are NOT free-form: `interpolate()` throws on any `{{name}}` that
+  // the section did not register, and `dsh-persona` registers none of its own. So the
+  // rule is not "keep this variable" but "keep variables out unless you know the host
+  // provides them". `{{cwd}}` was here and broke the preset outright on hosts whose
+  // `dsh-agent-loop` did not register `cwd` — a full-turn failure for every user on
+  // that version, reported as PR #2.
+  check("prefix 不含 prompt 变量", !/\{\{[a-z][a-z0-9_]*\}\}/.test(prefix), (prefix.match(/\{\{[^}]*\}\}/g) ?? []).join(", "));
   check("prefix 保留章节标题", (prefix.match(/^## /gm) ?? []).length >= 4);
   check("prefix 保留行内代码", prefix.includes("`DataList`"));
   check("prefix 保留加粗", prefix.includes("**PC 与 Quest"));
@@ -316,6 +323,7 @@ if (typeof prefix === "string") {
 check("suffix 是字符串", typeof suffix === "string");
 check("suffix 非空", typeof suffix === "string" && suffix.trim().length > 1000, `${suffix?.length ?? 0} 字符`);
 if (typeof suffix === "string") {
+  check("suffix 不含 prompt 变量", !/\{\{[a-z][a-z0-9_]*\}\}/.test(suffix), (suffix.match(/\{\{[^}]*\}\}/g) ?? []).join(", "));
   check("suffix 含红线标题", suffix.includes("# VRChat 硬约束与领域知识"));
   check("suffix 含 10 条红线", (suffix.match(/^\| \d+ \|/gm) ?? []).length >= 10, `${(suffix.match(/^\| \d+ \|/gm) ?? []).length} 行`);
   check("suffix 含域块分割线", suffix.includes("\n---\n"));
