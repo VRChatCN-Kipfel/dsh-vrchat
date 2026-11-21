@@ -6,16 +6,11 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { requireCorpusRoot } = require("../lib/corpus-root.cjs");
 
-const root = path.join(
-  __dirname,
-  "..",
-  "..",
-  "VRChat-Agent-Creator-Library",
-  "memoryV5.0.0",
-  "LLMWikiExample",
-  "LLMWikiPage",
-);
+// Was `__dirname/../..`, which points one level ABOVE the repository — the paths
+// there resolve to a sibling of the checkout that never exists.
+const root = requireCorpusRoot(path.join(__dirname, ".."));
 
 const CJK = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/;
 

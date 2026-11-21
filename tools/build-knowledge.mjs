@@ -4,8 +4,11 @@
  * Inputs are two very different things on purpose:
  *   - `content-src/`     hand-curated, compressed blocks — the injected prompt text.
  *                        Editable line by line, reviewed by a human.
- *   - `../VRChat-Agent-Creator-Library/`  the upstream submodule — 414 pages, used
- *                        verbatim as the long-tail retrieval corpus.
+ *   - `../VRChat-Agent-Creator-Library/`  the upstream submodule, used verbatim as
+ *                        the long-tail retrieval corpus. Its knowledge-root
+ *                        directory is version-named and renamed upstream, so its
+ *                        location is resolved (`lib/corpus-root.cjs`) rather than
+ *                        written down here.
  *
  * The build never re-derives the curated blocks from the corpus: that is what
  * makes the injected text reviewable and stable across upstream updates.
@@ -19,6 +22,9 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, posix } from "node:path";
 const require = createRequire(import.meta.url);
+// The knowledge root's version segment is upstream's to rename; the resolver is
+// the one place that knows how to find it (`lib/corpus-root.cjs`).
+const corpusLayout = require("../lib/corpus-root.cjs");
 // The patch is serialized with YAML rather than hand-templated — a single misplaced
 // block scalar breaks activation of the whole preset — and the shipped plugin reads
 // no YAML at runtime.
@@ -61,13 +67,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const workspaceRoot = join(here, "..");
 const contentSrc = join(workspaceRoot, "content-src");
 const dataDir = join(workspaceRoot, "data");
-const corpusRoot = join(
-  workspaceRoot,
-  "VRChat-Agent-Creator-Library",
-  "memoryV5.0.0",
-  "LLMWikiExample",
-  "LLMWikiPage",
-);
+const corpusRoot = corpusLayout.requireCorpusRoot(workspaceRoot);
+// The version comes from the knowledge-root DIRECTORY NAME. Upstream carries it
+// there (`memoryV5.0.3/`) and no longer publishes a README version badge, so the
+// old badge-only read reported "unknown" beside a perfectly good corpus.
+const corpusSegments = corpusLayout.corpusEntrySegments(workspaceRoot) ?? [];
+const corpusVersion = /^memoryV(\d+(?:\.\d+)*)$/.exec(corpusSegments[1] ?? "")?.[1] ?? null;
 
 /**
  * Token estimate for mixed zh/en text.
@@ -341,6 +346,16 @@ async function main() {
     await writeFile(join(dataDir, `${key}.txt`), text, "utf8");
   }
 
+  // The injected prompt NAMES the upstream version it covers. If that line drifts
+  // from the corpus actually shipped, every answer carries a false provenance
+  // claim — so refuse to build rather than publish a stale number.
+  if (corpusVersion !== null && !loaded["domain-map"].includes(`v${corpusVersion}`)) {
+    console.error(
+      `content-src/domain-map.md 声明的上游版本与语料目录不一致：目录是 ${corpusSegments[1]}，正文应写 v${corpusVersion}。`,
+    );
+    process.exit(2);
+  }
+
   // Preset mode: the full digest, plus the coverage map as its opening section.
   const alwaysLoad = [
     loaded["domain-map"],
@@ -397,7 +412,7 @@ async function main() {
   // The raw pages are NOT copied anywhere: they are the submodule, i.e. part of
   // the plugin body, read in place at query time. `data/` carries only what the
   // build DERIVES from them — metadata the store needs up front so a query does
-  // not have to walk 414 files to learn what exists.
+  // not have to walk the whole corpus to learn what exists.
   const files = await walkMarkdown(corpusRoot);
   const index = [];
 
@@ -503,14 +518,16 @@ async function main() {
   await writeFile(join(dataDir, "api-table.json"), JSON.stringify(apiTable), "utf8");
 
   // ── 3. Manifest ───────────────────────────────────────────────────────────
-  // Library version is read from the upstream README badge, not hardcoded.
-  let libraryVersion = "unknown";
-  try {
-    const readme = await readText(join(workspaceRoot, "VRChat-Agent-Creator-Library", "README.md"));
-    const badge = /Version:\s*(v[\d.]+)/i.exec(readme) ?? /\bv(\d+\.\d+\.\d+)\b/.exec(readme);
-    if (badge !== null) libraryVersion = badge[1].replace(/^v/i, "");
-  } catch {
-    /* README absent in a partial checkout */
+  let libraryVersion = corpusVersion ?? "unknown";
+  if (corpusVersion === null) {
+    // Older layouts kept the version in a README badge instead.
+    try {
+      const readme = await readText(join(workspaceRoot, "VRChat-Agent-Creator-Library", "README.md"));
+      const badge = /Version:\s*(v[\d.]+)/i.exec(readme) ?? /\bv(\d+\.\d+\.\d+)\b/.exec(readme);
+      if (badge !== null) libraryVersion = badge[1].replace(/^v/i, "");
+    } catch {
+      /* README absent in a partial checkout */
+    }
   }
 
   let upstreamHead = "unknown";
@@ -525,7 +542,9 @@ async function main() {
   const manifest = {
     builtAt: new Date().toISOString(),
     libraryVersion: libraryVersion,
-    corpusRoot: "VRChat-Agent-Creator-Library/memoryV5.0.0/LLMWikiExample/LLMWikiPage",
+    // Spelled out from the layout actually resolved, so a manifest can never
+    // claim a directory that the build did not read.
+    corpusRoot: (corpusLayout.corpusEntrySegments(workspaceRoot) ?? []).join("/"),
     upstreamGitPointer: upstreamHead,
     pageCount: index.length,
     keywordRoutes: manifestKeywordRoutes,

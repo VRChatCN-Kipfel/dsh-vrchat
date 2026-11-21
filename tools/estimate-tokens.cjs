@@ -7,17 +7,10 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { requireCorpusRoot } = require("../lib/corpus-root.cjs");
 
 const bundle = path.join(__dirname, "..");
-const upstream = path.join(
-  __dirname,
-  "..",
-  "VRChat-Agent-Creator-Library",
-  "memoryV5.0.0",
-  "LLMWikiExample",
-  "LLMWikiPage",
-  "_always-load.md",
-);
+const upstream = path.join(requireCorpusRoot(bundle), "_always-load.md");
 
 const CJK = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/;
 

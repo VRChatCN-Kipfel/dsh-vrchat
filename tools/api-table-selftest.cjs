@@ -11,14 +11,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
+const { requireCorpusRoot } = require("../lib/corpus-root.cjs");
 
 const SOURCE = path.join(
-  __dirname,
-  "..",
-  "VRChat-Agent-Creator-Library",
-  "memoryV5.0.0",
-  "LLMWikiExample",
-  "LLMWikiPage",
+  requireCorpusRoot(path.join(__dirname, "..")),
   "entities",
   "api",
   "exposed-types.md",

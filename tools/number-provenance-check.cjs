@@ -26,15 +26,10 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { requireCorpusRoot } = require("../lib/corpus-root.cjs");
 
 const ROOT = path.join(__dirname, "..");
-const CORPUS = path.join(
-  ROOT,
-  "VRChat-Agent-Creator-Library",
-  "memoryV5.0.0",
-  "LLMWikiExample",
-  "LLMWikiPage",
-);
+const CORPUS = requireCorpusRoot(ROOT);
 
 /**
  * Numbers that are NOT corpus facts, exempted explicitly.
@@ -122,7 +117,7 @@ for (const source of sources) {
       check(
         `${source.rel} 的 Unity 版本 ${version} 来自语料`,
         hit.length > 0,
-        `414 页里找不到 ${version}`,
+        `语料里找不到 ${version}`,
       );
     }
 

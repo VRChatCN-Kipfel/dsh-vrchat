@@ -56,7 +56,7 @@ const PKG_ROOT = join(ROOT, "..");
  * knowledge base differ between two machines.
  */
 const PINS = {
-  "VRChat-Agent-Creator-Library": "71485c2b5fb20f81c6fca6f96673d821c352c646",
+  "VRChat-Agent-Creator-Library": "62944e812da7275c3ec110e26e6f0fdbbbd476a0",
   "vendor/vrchat-world-codex-skills": "08ef020dde293882edaf6d94834d2f44839fb307",
   "vendor/vrchat-editor-skill": "6aa07769b56ccb0a4450ba90bab53aaf3c287869",
 };
@@ -64,9 +64,16 @@ const PINS = {
 /**
  * What must exist after each clone, so "successfully cloned nothing" is caught.
  * Keyed by path for the same reason as the pins.
+ *
+ * The knowledge-root version is spelled out HERE on purpose, even though the
+ * runtime resolves it (`lib/corpus-root.cjs` matches the version segment). This
+ * is the one place that asserts a PIN and its LAYOUT agree: if someone moves the
+ * gitlink without updating this string, the install fails here instead of
+ * shipping an empty-looking corpus. `tools/corpus-root-selftest.cjs` checks the
+ * same agreement from the outside, so the two cannot drift silently.
  */
 const EXPECT = {
-  "VRChat-Agent-Creator-Library": ["memoryV5.0.0/LLMWikiExample/LLMWikiPage"],
+  "VRChat-Agent-Creator-Library": ["memoryV5.0.3/LLMWikiExample/LLMWikiPage"],
   "vendor/vrchat-world-codex-skills": ["SKILL.md"],
   "vendor/vrchat-editor-skill": ["SKILL.md"],
 };

@@ -19,15 +19,12 @@ const { loadFromHost } = require("./lib-host-require.cjs");
 const requireFromProfile = loadFromHost;
 const YAML = requireFromProfile("yaml");
 const { workingPatch, locateRows } = require("./lib-patch-rows.cjs");
+const { requireCorpusRoot } = require("../lib/corpus-root.cjs");
 
 const ROOT = path.join(__dirname, "..");
-const CORPUS = path.join(
-  ROOT,
-  "VRChat-Agent-Creator-Library",
-  "memoryV5.0.0",
-  "LLMWikiExample",
-  "LLMWikiPage",
-);
+// Resolved, not spelled out: the knowledge-root version segment is upstream's to
+// rename, and a literal here silently pointed at nothing after a bump.
+const CORPUS = requireCorpusRoot(ROOT);
 
 const checks = [];
 const check = (name, ok, detail) => checks.push({ name, ok, detail });

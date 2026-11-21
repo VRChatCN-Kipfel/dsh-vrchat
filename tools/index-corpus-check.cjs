@@ -11,9 +11,10 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { requireCorpusRoot } = require("../lib/corpus-root.cjs");
 
 const root = path.join(__dirname, "..");
-const corpus = path.join(root, "VRChat-Agent-Creator-Library", "memoryV5.0.0", "LLMWikiExample", "LLMWikiPage");
+const corpus = requireCorpusRoot(root);
 const index = JSON.parse(fs.readFileSync(path.join(root, "data", "index.json"), "utf8"));
 
 const checks = [];

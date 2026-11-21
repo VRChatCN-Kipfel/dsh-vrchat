@@ -27,6 +27,15 @@ async function main() {
   const paths = store.index.map((entry) => entry.path);
   const sample = "entities/api/not-exposed.md";
 
+  // Rejection fixtures name the layout that is REALLY on disk: deriving them from
+  // a stale literal would test against a directory that no longer exists, and a
+  // check that refuses an impossible path proves nothing.
+  const segments = search.corpusEntrySegments(root);
+  if (segments === null || !fs.existsSync(path.join(root, ...segments))) {
+    console.error("找不到语料或其布局，无法构造语料布局的拒绝用例");
+    process.exit(1);
+  }
+
   const checks = [];
   const check = (name, ok, detail) => checks.push({ name, ok, detail });
 
@@ -42,11 +51,15 @@ async function main() {
   //
   // These must resolve to null. Resolving them would imply the agent should know
   // the install layout, and would break when the package is installed elsewhere.
+  //
+  // The version segment comes from the layout actually on disk: a literal went
+  // stale on every submodule bump and quietly turned this into a weaker test.
+  const versionDir = segments[1];
   const mustNotResolve = {
-    "Windows 绝对路径": `D:/x/VRChat-Agent-Creator-Library/memoryV5.0.0/LLMWikiExample/LLMWikiPage/${sample}`,
-    "Unix 绝对路径": `/home/x/lib/memoryV5.0.0/LLMWikiExample/LLMWikiPage/${sample}`,
+    "Windows 绝对路径": `D:/x/${segments.join("/")}/${sample}`,
+    "Unix 绝对路径": `/home/x/lib/${segments.slice(1).join("/")}/${sample}`,
     "安装目录相对路径": `node_modules/dsh-vrchat/VRChat-Agent-Creator-Library/${sample}`,
-    "版本目录段": `memoryV5.0.0/LLMWikiExample/LLMWikiPage/${sample}`,
+    "版本目录段": `${versionDir}/LLMWikiExample/LLMWikiPage/${sample}`,
   };
   for (const [label, candidate] of Object.entries(mustNotResolve)) {
     check(`拒绝 ${label}`, docs.resolvePage(paths, candidate) === null, candidate.slice(0, 60));

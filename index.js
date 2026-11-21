@@ -1152,8 +1152,8 @@ function apply(ctx, config) {
   // ── vrchat_kb_filter — query the metadata as a FILTER, not as text ────────
   // Every page carries ~35 lines of YAML frontmatter that `read` skips as
   // non-content. Searching those words with grep is noise (`last_review` matches
-  // all 414 pages), but filtering on them is precise: `status: deprecated` is one
-  // page out of 414, a fact no text search can express.
+  // every page), but filtering on them is precise: `status: deprecated` is a
+  // single page out of the whole corpus, a fact no text search can express.
   ctx.tools.register(
     defineTool({
       name: "vrchat_kb_filter",

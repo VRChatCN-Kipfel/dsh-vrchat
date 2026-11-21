@@ -131,6 +131,7 @@
 ```
 dsh-vrchat/                                ← 插件仓库根
 ├── VRChat-Agent-Creator-Library/          ← submodule：语料本体，只读
+│   └── memoryV5.*/LLMWikiExample/LLMWikiPage/   ← 知识根；版本段由 lib/corpus-root.cjs 解析（取最高版本，不回退）
 ├── vendor/
 │   ├── vrchat-world-codex-skills/         ← submodule：技能包（入口 + 3 子技能）
 │   └── vrchat-editor-skill/               ← submodule：技能包（Avatar 审计）

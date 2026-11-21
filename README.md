@@ -263,11 +263,16 @@ node tools/build-knowledge.mjs     # 上游 submodule → data/
 node tools/measure-content.mjs .   # CJK/ASCII 分开的 token 估算
 
 node tools/selftest.cjs                             # 数据完整性 + 示例查询
+node tools/corpus-root-selftest.cjs                 # 语料定位规则（取最新版本目录、不回退、不越界）
 node tools/debug-query.cjs "Udon 同步变量 非 Owner"  # 单条查询的覆盖率与路由
 node tools/token-df.cjs rust 同步 quest              # 文档频率
 ```
 
 改完 `content-src/` 之后必须重跑 `build-knowledge.mjs`，否则安装代里还是旧文本。
+
+升级上游语料时：改 `.gitmodules` 指向的 gitlink，并同步 `tools/prepare.js` 里的 pin 与期望布局；
+`corpus-root-selftest.cjs` 会把「pin、磁盘上的版本目录、`prepare.js` 的期望布局」三者交叉核对，
+三者不一致就报错——这条路径曾经因为只挪了 gitlink 而让装好的插件报「语料不可用」。
 
 ### 想了解内部构造
 

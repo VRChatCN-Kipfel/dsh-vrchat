@@ -23,7 +23,17 @@ async function main() {
 
   check("从工作区包根找到语料", found !== null, String(found));
   check("发现耗时极低（声明路径，非扫描）", elapsed < 20, `${elapsed} ms`);
-  check("路径等于声明的 entry", found === path.join(root, ...mod.CORPUS_ENTRY), String(found));
+  // NOT `found === path.join(root, ...mod.corpusEntrySegments(root))`: that asks
+  // the resolver to certify its own output and passes however wrong it is. The
+  // expectation is re-derived here from the directory listing instead.
+  const expectedDir = path.join(
+    root,
+    "VRChat-Agent-Creator-Library",
+    require("./lib-corpus-oracle.cjs").newestVersionDir(path.join(root, "VRChat-Agent-Creator-Library")),
+    "LLMWikiExample",
+    "LLMWikiPage",
+  );
+  check("路径等于独立推导的位置", found === expectedDir, `${found} vs ${expectedDir}`);
 
   if (found !== null) {
     const pages = fs.readdirSync(found, { withFileTypes: true });
@@ -48,7 +58,7 @@ async function main() {
   check("无语料的包根返回 null", mod.findCorpusRoot(path.join(root, "lib")) === null);
 
   // Entry is a parameter, so a sibling library declares its own layout.
-  const sibling = mod.findCorpusRoot(root, ["VRChat-Agent-Creator-Library", "memoryV5.0.0", "LLMWikiExample", "LLMWikiPage"]);
+  const sibling = mod.findCorpusRoot(root, ["VRChat-Agent-Creator-Library", "memoryV5.*", "LLMWikiExample", "LLMWikiPage"]);
   check("显式 entry 可用（多库各声明自己的）", sibling === found, String(sibling));
 
   // The corpus must NOT live inside the derived-data directory: bodies are body,

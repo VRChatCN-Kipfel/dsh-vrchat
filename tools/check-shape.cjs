@@ -65,7 +65,7 @@ check(
 );
 check(
   "语料目录实际存在",
-  fs.existsSync(path.join(root, "VRChat-Agent-Creator-Library", "memoryV5.0.0")),
+  fs.existsSync(require("../lib/corpus-root.cjs").requireCorpusRoot(root)),
 );
 
 // ── every bare import in the HOST half must be declared or Host-provided ───
@@ -99,17 +99,39 @@ for (const rel of hostFiles) {
   }
 }
 
-// The manifest must not declare what nothing uses: it slows installation and
-// hides which dependency actually matters.
-const allHostText = hostFiles.map((rel) => fs.readFileSync(path.join(root, rel), "utf8")).join("\n");
+// The manifest must not declare what nothing uses: the user pays for a
+// dependency at INSTALL time, and an unused one hides which dependency actually
+// matters.
+//
+// "Used" spans both halves that ship. `yaml` is build-only — `tools/prepare.js`
+// runs on the user's machine during install, where no DSH tree exists to borrow
+// a parser from (see the note in build-knowledge.mjs), so it is declared even
+// though nothing at RUNTIME imports it. The old rule here said the opposite and
+// had been red ever since that decision landed.
+const shippedBuildFiles = ["tools/build-knowledge.mjs", "tools/prepare.js"].filter((rel) =>
+  fs.existsSync(path.join(root, rel)),
+);
+const textOf = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
+const runtimeText = hostFiles.map(textOf).join("\n");
+const usedBy = (name, text) => {
+  const spec = name.replace(/[/@.]/g, "\\$&");
+  return (
+    new RegExp(`\\bfrom\\s+["']${spec}["']`).test(text) ||
+    new RegExp(`\\brequire\\(\\s*["']${spec}["']\\s*\\)`).test(text)
+  );
+};
+const usageText = [runtimeText, ...shippedBuildFiles.map(textOf)].join("\n");
+
 for (const name of declared) {
-  const pattern = new RegExp(`\\bfrom\\s+["']${name.replace(/[/@.]/g, "\\$&")}["']`);
-  check(`依赖 ${name} 确实被使用`, pattern.test(allHostText), "未使用的依赖应从 dependencies 移除");
+  check(`依赖 ${name} 确实被使用`, usedBy(name, usageText), "未使用的依赖应从 dependencies 移除");
 }
 
-// The build tool reads `yaml` from the DSH installation (it is a Host
-// dependency), not from this package, so it must not appear in dependencies.
-check("yaml 不在运行时依赖里", !declared.has("yaml"), [...declared].join(", "));
+// The other direction, and the reason `yaml` was singled out: index.js runs in
+// every session that activates the preset, so a parser that only the build needs
+// must stay out of that path even while being declared for `prepare`.
+if (declared.has("yaml")) {
+  check("yaml 只被构建脚本使用，运行时无引用", !usedBy("yaml", runtimeText), [...declared].join(", "));
+}
 
 let failed = 0;
 for (const item of checks) {

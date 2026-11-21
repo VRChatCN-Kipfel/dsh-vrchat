@@ -2,7 +2,7 @@
  * Prove number-provenance-check FAILS on a drifted number.
  *
  * A guard that has never been observed failing is not evidence. This one is
- * especially prone to silent death: it matches over a 414-page corpus, so an
+ * especially prone to silent death: it matches over the whole corpus, so an
  * early `return`, a wrong corpus path, or an over-broad exemption list would make
  * it print "全部通过" while checking nothing at all.
  *
@@ -31,8 +31,9 @@ check("未改动时通过", baseline.status === 0, (baseline.stdout ?? "").trim(
  * helper serves both "expect failure" (drift caught) and "expect success" (a known
  * limit), and a helper that asserts its own expectation cannot express the second.
  *
- * The corpus is symlinked rather than copied: 414 files and 4 MB per case is not
- * worth staging, and the guard resolves the same relative path either way.
+ * The corpus is symlinked rather than copied: thousands of files and megabytes
+ * per case is not worth staging, and the guard resolves the same relative path
+ * either way.
  */
 function runWith(label, mutate) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "numprov-"));
@@ -59,6 +60,14 @@ function runWith(label, mutate) {
     "junction",
   );
   fs.copyFileSync(GUARD, path.join(temp, "tools", "number-provenance-check.cjs"));
+  // The guard resolves the knowledge-root version through this module now, so a
+  // staged tree without it fails to load — which would look exactly like "the
+  // mutation was caught" and pass the wrong checks for the wrong reason.
+  fs.mkdirSync(path.join(temp, "lib"), { recursive: true });
+  fs.copyFileSync(
+    path.join(ROOT, "lib", "corpus-root.cjs"),
+    path.join(temp, "lib", "corpus-root.cjs"),
+  );
 
   const run = spawnSync(process.execPath, [path.join(temp, "tools", "number-provenance-check.cjs")], {
     cwd: temp,

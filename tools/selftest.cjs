@@ -25,7 +25,17 @@ async function main() {
   // ── corpus discovery: declared inside, adaptive outside ────────────────
   const found = search.findCorpusRoot(root);
   check("从包根找到语料", found !== null, String(found));
-  check("路径等于声明的 entry", found === path.join(root, ...search.CORPUS_ENTRY));
+  // Independent expectation, not the resolver's own return value: a tautological
+  // assertion here would have passed even with a path that no longer existed.
+  const oracle = require("./lib-corpus-oracle.cjs");
+  const expected = path.join(
+    root,
+    "VRChat-Agent-Creator-Library",
+    oracle.newestVersionDir(path.join(root, "VRChat-Agent-Creator-Library")),
+    "LLMWikiExample",
+    "LLMWikiPage",
+  );
+  check("路径等于独立推导的位置", found === expected, `${found} vs ${expected}`);
   check("空路径安全", search.findCorpusRoot("") === null);
   check("不存在的路径安全", search.findCorpusRoot("Z:/definitely/not/here") === null);
   check("无 corpus 的包根返回 null", search.findCorpusRoot(path.join(root, "lib")) === null);

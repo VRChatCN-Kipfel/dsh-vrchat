@@ -196,7 +196,7 @@ if (typeof prefix === "string") {
   check("prefix 提到四个工具", ["vrchat_kb_api", "vrchat_kb_grep", "vrchat_kb_read", "vrchat_kb_scan"].every((t) => prefix.includes(t)));
   check("prefix 提到运行时探测工具", /vrchat_kb_unity/.test(prefix));
   // The two metadata tools exist because frontmatter is a FILTER, not text. If the
-  // prompt does not name them, the agent falls back to grep and gets 414 hits.
+  // prompt does not name them, the agent falls back to grep and drowns in hits.
   check("prefix 提到筛选工具", /vrchat_kb_filter/.test(prefix));
   check("prefix 提到列库工具", /vrchat_kb_list/.test(prefix));
   check("说明元数据是筛选而非文本搜索", /结构化筛选/.test(prefix) && /命中几乎所有页/.test(prefix));

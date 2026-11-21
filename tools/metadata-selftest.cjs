@@ -13,8 +13,21 @@ async function main() {
   const meta = JSON.parse(fs.readFileSync(path.join(root, "data", "manifest.json"), "utf8"));
   const index = JSON.parse(fs.readFileSync(path.join(root, "data", "index.json"), "utf8"));
 
+  // Expectations are RE-DERIVED from the index under test, never hardcoded: a
+  // literal count measures the submodule revision, so every upstream page landing
+  // turned these red while the filter was perfectly correct.
+  const same = (value, wanted) => String(value ?? "").toLowerCase() === wanted;
+  const highCount = index.filter((entry) => same(entry.confidence, "high")).length;
+  const worldCount = index.filter((entry) => same(entry.category, "world")).length;
+  const bothCount = index.filter((entry) => same(entry.confidence, "high") && same(entry.category, "world")).length;
+  const tagCount = new Set(index.flatMap((entry) => entry.tags ?? [])).size;
+  const draftCount = index.filter((entry) => same(entry.status, "draft")).length;
+  const deprecatedCount = index.filter((entry) => same(entry.status, "deprecated")).length;
+
   const checks = [];
   const check = (name, ok, detail) => checks.push({ name, ok, detail });
+
+  check("索引本身有内容可筛", index.length > 0 && highCount > 0 && worldCount > 0, `${index.length} / ${highCount} / ${worldCount}`);
 
   // ── field validation ────────────────────────────────────────────────────
   check("已知字段通过校验", mod.validateFilters({ confidence: "high" }) === null);
@@ -32,14 +45,14 @@ async function main() {
   check("空筛选返回全部", all.length === index.length, String(all.length));
 
   const high = mod.filterIndex(index, { confidence: "high" });
-  check("confidence=high 计数正确", high.length === 204, String(high.length));
+  check("confidence=high 计数正确", high.length === highCount, `${high.length} vs ${highCount}`);
   check("结果每项都符合条件", high.every((entry) => entry.confidence === "high"));
 
   const world = mod.filterIndex(index, { category: "world" });
-  check("category=world 计数正确", world.length === 202, String(world.length));
+  check("category=world 计数正确", world.length === worldCount, `${world.length} vs ${worldCount}`);
 
   const both = mod.filterIndex(index, { confidence: "high", category: "world" });
-  check("组合筛选是 AND", both.length === 82, String(both.length));
+  check("组合筛选是 AND", both.length === bothCount, `${both.length} vs ${bothCount}`);
   check("组合结果是两个集合的交集", both.length < Math.min(high.length, world.length));
 
   // Case insensitivity: the frontmatter is inconsistent (`High` and `high`).
@@ -72,10 +85,10 @@ async function main() {
   const cats = mod.facet(index, "category");
   check("facet 覆盖全部条目", cats.reduce((sum, [, n]) => sum + n, 0) === index.length);
   check("facet 按计数降序", cats.every((entry, i) => i === 0 || cats[i - 1][1] >= entry[1]));
-  check("facet 的 world 计数正确", cats.find(([v]) => v === "world")?.[1] === 202);
+  check("facet 的 world 计数正确", cats.find(([v]) => v === "world")?.[1] === worldCount, String(worldCount));
 
   const tags = mod.facet(index, "tags");
-  check("tags facet 有 372 个标签", tags.length === 372, String(tags.length));
+  check("tags facet 覆盖全部标签", tags.length === tagCount, `${tags.length} vs ${tagCount}`);
 
   // ── library description ─────────────────────────────────────────────────
   const described = mod.describeLibraries({
@@ -93,9 +106,17 @@ async function main() {
     described.includes(`页数：${index.length}`),
     `期望 页数：${index.length}`,
   );
-  check("描述给出分类分布", /world/.test(described) && /202/.test(described));
-  check("描述给出可信度分布", /high 204/.test(described));
-  check("描述提示 draft/deprecated", /draft 1 页 \/ deprecated 1 页/.test(described));
+  check(
+    "描述给出分类分布",
+    /world/.test(described) && new RegExp(`\\b${worldCount}\\s+world\\b`).test(described),
+    `期望分类分布含 ${worldCount} world`,
+  );
+  check("描述给出可信度分布", described.includes(`high ${highCount}`), `期望 high ${highCount}`);
+  check(
+    "描述提示 draft/deprecated",
+    described.includes(`draft ${draftCount} 页 / deprecated ${deprecatedCount} 页`),
+    `期望 draft ${draftCount} / deprecated ${deprecatedCount}`,
+  );
   check("描述不含本机绝对路径", !/[A-Za-z]:[\\/]/.test(described));
 
   const empty = mod.describeLibraries({ manifest: meta, index, corpusRoot: null, dataDir: "" });

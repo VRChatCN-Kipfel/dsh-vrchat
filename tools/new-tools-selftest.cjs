@@ -51,8 +51,15 @@ async function main() {
     described.includes(`页数：${store.index.length}`),
     `期望 页数：${store.index.length}`,
   );
-  check("给出分类分布且含 world 计数", /world/.test(described) && /\b202\b/.test(described));
-  check("给出 draft/deprecated 提醒", /deprecated 1 页/.test(described));
+  // Derived from the index under test for the same reason as the page count above.
+  const worldCount = store.index.filter((entry) => String(entry.category ?? "").toLowerCase() === "world").length;
+  const deprecatedCount = store.index.filter((entry) => String(entry.status ?? "").toLowerCase() === "deprecated").length;
+  check(
+    "给出分类分布且含 world 计数",
+    /world/.test(described) && new RegExp(`\\b${worldCount}\\s+world\\b`).test(described),
+    `期望分类分布含 ${worldCount} world`,
+  );
+  check("给出 draft/deprecated 提醒", described.includes(`deprecated ${deprecatedCount} 页`), `期望 ${deprecatedCount}`);
   check("不泄漏本机绝对路径", !/[A-Za-z]:[\\/]/.test(described));
   check("不泄漏语料目录段", !/LLMWikiPage|memoryV\d/.test(described), "只给上游相对描述");
 

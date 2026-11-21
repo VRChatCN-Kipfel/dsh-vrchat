@@ -8,8 +8,11 @@ const always = fs.readFileSync(path.join(dataDir, "always-load.txt"), "utf8");
 const prefix = fs.readFileSync(path.join(dataDir, "persona-prefix.txt"), "utf8");
 const suffix = fs.readFileSync(path.join(dataDir, "persona-suffix.txt"), "utf8");
 
+const manifest = JSON.parse(fs.readFileSync(path.join(dataDir, "manifest.json"), "utf8"));
 const section = `${t0}\n\n---\n\n${always}`;
-const provenanceLine = `\n\n> 库 v5.0.0 / 上游 414 页 / 构建 2026-10-22 · 本块 2103–3040 tok`;
+// Derived, not spelled out: a literal provenance line drifts on every rebuild and
+// then measures a block that no longer exists.
+const provenanceLine = `\n\n> 库 v${manifest.libraryVersion} / 上游 ${manifest.pageCount} 页 / 构建 ${(manifest.builtAt ?? "").slice(0, 10)} · 本块 2103–3040 tok`;
 const withProvenance = section.length + provenanceLine.length;
 
 console.log("预设场景下的注入组成");

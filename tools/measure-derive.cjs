@@ -8,15 +8,9 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const { requireCorpusRoot } = require("../lib/corpus-root.cjs");
 
-const CORPUS = path.join(
-  __dirname,
-  "..",
-  "VRChat-Agent-Creator-Library",
-  "memoryV5.0.0",
-  "LLMWikiExample",
-  "LLMWikiPage",
-);
+const CORPUS = requireCorpusRoot(path.join(__dirname, ".."));
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

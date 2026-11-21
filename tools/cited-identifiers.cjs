@@ -25,16 +25,14 @@ if (persona === undefined) {
 const personaText = `${persona?.config?.prefix ?? ""}\n${persona?.config?.suffix ?? ""}`;
 
 // The corpus now lives in the workspace checkout, so read it there rather than
-// from a bundled body map.
-const corpusRoot = (() => {
-  const relative = ["VRChat-Agent-Creator-Library", "memoryV5.0.0", "LLMWikiExample", "LLMWikiPage"];
-  return path.join(root, ...relative);
-})();
+// from a bundled body map. The knowledge-root version segment is resolved, not
+// spelled out: upstream renames it every minor release.
+const corpusRoot = require("../lib/corpus-root.cjs").requireCorpusRoot(root);
 const { execSync } = require("node:child_process");
 const corpus = (() => {
   try {
-    // `findstr`-free: let Node read the tree once. 414 small files is fine for a
-    // build-time guard.
+    // `findstr`-free: let Node read the tree once. A build-time guard, so the
+    // whole corpus in memory is fine.
     const walk = (dir) =>
       fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
         const full = path.join(dir, entry.name);

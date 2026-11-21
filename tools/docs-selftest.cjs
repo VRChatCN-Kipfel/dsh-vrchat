@@ -22,6 +22,13 @@ async function main() {
   const search = await import(pathToFileURL(path.join(root, "lib", "search.js")).href);
 
   const corpusRoot = search.findCorpusRoot(root);
+  // The rejection fixture below must name the layout that is REALLY on disk, so
+  // that the negative case cannot quietly decay into "refuses a path nobody has".
+  const segments = search.corpusEntrySegments(root);
+  if (segments === null || !fs.existsSync(path.join(root, ...segments))) {
+    console.error("找不到语料或其布局，无法构造绝对路径的拒绝用例");
+    process.exit(1);
+  }
   const index = JSON.parse(fs.readFileSync(path.join(root, "data", "index.json"), "utf8"));
   const paths = index.map((entry) => entry.path);
 
@@ -58,7 +65,7 @@ async function main() {
     "绝对安装路径不再被换算",
     docs.resolvePage(
       paths,
-      "D:/x/VRChat-Agent-Creator-Library/memoryV5.0.0/LLMWikiExample/LLMWikiPage/entities/api/not-exposed.md",
+      `D:/x/${segments.join("/")}/entities/api/not-exposed.md`,
     ) === null,
     "agent 不需要知道语料装在哪",
   );
