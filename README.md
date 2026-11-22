@@ -1,4 +1,5 @@
 # **DSH-VRChat**
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/vrchatcn-kipfel/dsh-vrchat) 
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai) 的 VRChat 创作者工具链。
 
